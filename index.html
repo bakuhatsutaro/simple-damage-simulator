@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>ダメージシミュレーター（1万回＋ヒストグラム）</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <h2>ヒット範囲のシミュレーション（1万回）</h2>
+
+  <label>会心確率 (%): <input type="text" id="critRateInput" placeholder="45.43"></label><br><br>
+
+  <textarea id="inputText" rows="12" cols="60">
+ヒット1-24 (71.96%)
+19,702 - 25,824
+会心
+73,785 - 96,711
+ヒット25-44 (118.34%)
+32,402 - 42,470
+会心
+121,345 - 159,049
+ヒット45-46 (120.51%)
+32,995 - 43,248
+会心
+123,567 - 161,962
+  </textarea><br>
+
+  <button onclick="simulate()">シミュレーション開始</button>
+  <p id="parsedData"></p>
+  <p id="result"></p>
+  <canvas id="histogramChart" width="800" height="400"></canvas>
+
+  <script>
+    let chartInstance = null;
+
+    function parseRange(line) {
+      const match = line.match(/([\d,]+)\s*-\s*([\d,]+)/);
+      if (!match) return null;
+      const low = parseInt(match[1].replace(/,/g, ''));
+      const high = parseInt(match[2].replace(/,/g, ''));
+      return [low, high];
+    }
+
+    function randomIntInRange(low, high) {
+      return Math.floor(Math.random() * (high - low + 1)) + low;
+    }
+
+    function simulate() {
+      const critRateInput = document.getElementById("critRateInput").value.trim();
+      const critRate = parseFloat(critRateInput) / 100 || 0.4543;
+
+      const input = document.getElementById("inputText").value;
+      const lines = input.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+
+      let hitBlocks = [];
+      let debugInfo = `<strong>会心確率: ${(critRate * 100).toFixed(2)}%</strong><br><br><strong>読み取ったブロック情報:</strong><br>`;
+
+      // ヒットブロックの解析
+      let i = 0;
+      while (i < lines.length) {
+        if (lines[i].startsWith("ヒット")) {
+          const hitMatch = lines[i].match(/ヒット(\d+)-(\d+)/);
+          const hitStart = parseInt(hitMatch[1]);
+          const hitEnd = parseInt(hitMatch[2]);
+          const hits = hitEnd - hitStart + 1;
+
+          const [low1, high1] = parseRange(lines[i + 1]);
+          const [low2, high2] = parseRange(lines[i + 3]);
+
+          hitBlocks.push({
+            hits: hits,
+            normal: [low1, high1],
+            crit: [low2, high2]
+          });
+
+          debugInfo += `【ヒット${hitStart}-${hitEnd}】 ヒット数: ${hits}<br>`;
+          debugInfo += `　通常ダメージ: ${low1.toLocaleString()} - ${high1.toLocaleString()}<br>`;
+          debugInfo += `　会心ダメージ: ${low2.toLocaleString()} - ${high2.toLocaleString()}<br><br>`;
+
+          i += 4;
+        } else {
+          i++;
+        }
+      }
+
+      // シミュレーション実行
+      const trialCount = 10000;
+      let totalDamages = [];
+
+      for (let t = 0; t < trialCount; t++) {
+        let total = 0;
+        for (const block of hitBlocks) {
+          for (let j = 0; j < block.hits; j++) {
+            const isCrit = Math.random() < critRate;
+            const [low, high] = isCrit ? block.crit : block.normal;
+            total += randomIntInRange(low, high);
+          }
+        }
+        totalDamages.push(total);
+      }
+
+      // 上位x%表示
+      totalDamages.sort((a, b) => b - a);
+      const thresholds = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50];
+      let output = `<strong>試行回数: ${trialCount.toLocaleString()}</strong><br><br>`;
+      output += `<strong>上位x%のダメージしきい値</strong><br>`;
+
+      for (const x of thresholds) {
+        const index = Math.floor(trialCount * (x / 100)) - 1;
+        const dmg = totalDamages[index];
+        output += `上位 ${x}%: ${dmg.toLocaleString()}<br>`;
+      }
+
+      document.getElementById("parsedData").innerHTML = debugInfo;
+      document.getElementById("result").innerHTML = output;
+
+      // ヒストグラム描画
+      const min = Math.min(...totalDamages);
+      const max = Math.max(...totalDamages);
+      const binCount = 50;
+      const binSize = Math.ceil((max - min + 1) / binCount);
+      const bins = new Array(binCount).fill(0);
+
+      for (const dmg of totalDamages) {
+        const index = Math.min(Math.floor((dmg - min) / binSize), binCount - 1);
+        bins[index]++;
+      }
+
+      const labels = [];
+      for (let i = 0; i < binCount; i++) {
+        const rangeStart = min + i * binSize;
+        const rangeEnd = rangeStart + binSize - 1;
+        labels.push(`${rangeStart.toLocaleString()}-${rangeEnd.toLocaleString()}`);
+      }
+
+      const ctx = document.getElementById('histogramChart').getContext('2d');
+      if (chartInstance) chartInstance.destroy();
+      chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'ダメージ頻度',
+            data: bins
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: {
+              ticks: {
+                maxRotation: 90,
+                minRotation: 45,
+                autoSkip: true,
+                maxTicksLimit: 15
+              },
+              title: {
+                display: true,
+                text: '合計ダメージ範囲'
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: '頻度'
+              }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: (tooltipItems) => `範囲: ${tooltipItems[0].label}`,
+                label: (tooltipItem) => `件数: ${tooltipItem.raw}`
+              }
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
