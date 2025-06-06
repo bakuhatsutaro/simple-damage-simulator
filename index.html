@@ -59,24 +59,30 @@
       let i = 0;
       while (i < lines.length) {
         if (lines[i].startsWith("ヒット")) {
-          const hitMatch = lines[i].match(/ヒット(\d+)-(\d+)/);
+          // ヒットN または ヒットN-M にマッチするよう修正
+          const hitMatch = lines[i].match(/ヒット(\d+)(?:-(\d+))?/);
+          if (!hitMatch) {
+            i++;
+            continue;
+          }
+      
           const hitStart = parseInt(hitMatch[1]);
-          const hitEnd = parseInt(hitMatch[2]);
+          const hitEnd = hitMatch[2] ? parseInt(hitMatch[2]) : hitStart;
           const hits = hitEnd - hitStart + 1;
-
+      
           const [low1, high1] = parseRange(lines[i + 1]);
           const [low2, high2] = parseRange(lines[i + 3]);
-
+      
           hitBlocks.push({
             hits: hits,
             normal: [low1, high1],
             crit: [low2, high2]
           });
-
-          debugInfo += `【ヒット${hitStart}-${hitEnd}】 ヒット数: ${hits}<br>`;
+      
+          debugInfo += `【ヒット${hitStart}${hitMatch[2] ? "-" + hitEnd : ""}】 ヒット数: ${hits}<br>`;
           debugInfo += `　通常ダメージ: ${low1.toLocaleString()} - ${high1.toLocaleString()}<br>`;
           debugInfo += `　会心ダメージ: ${low2.toLocaleString()} - ${high2.toLocaleString()}<br><br>`;
-
+      
           i += 4;
         } else {
           i++;
