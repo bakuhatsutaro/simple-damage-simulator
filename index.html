@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>ダメージシミュレーター（完全検証付き）</title>
+  <title>簡単ダメージシミュレーター</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { font-family: sans-serif; }
@@ -11,15 +11,15 @@
   </style>
 </head>
 <body>
-  <h2>ヒット範囲のシミュレーション（1万回）</h2>
+  <h2>シミュレーション（1万回）</h2>
 
   <div id="guide">
     <h3>📘 入力形式ガイド</h3>
     <ul>
-      <li><strong>ヒット行:</strong> <code>ヒット1</code>、<code>ヒット3-5</code>、<code>ヒット1-3, 5, 7-8</code> のように記載</li>
+      <li><strong>ヒット行:</strong> <code>ヒット1-3, 5, 7-8</code> のように記載。ここの読み取り失敗が起こりやすいので、不規則なヒットをしていたとしても、多少嘘ついてヒット1-8のような単純な書き方に変えることを強く推奨します</li>
       <li><strong>通常ダメージ:</strong> 次の行に <code>11,000 - 13,000</code> のように記載</li>
-      <li><strong>会心ダメージ:</strong> 「<code>会心</code>」の次の行に同様のレンジを記載</li>
-      <li><strong>注意:</strong> <code>(99.13%)</code> などの % 表示は無視されます</li>
+      <li><strong>会心ダメージ:</strong> 「<code>会心</code>」の次の行に同様にダメージの範囲を記載</li>
+      <li><code>(99.13%)</code> などの % 表示は使いませんので無視されます</li>
     </ul>
     <pre>
 例:
