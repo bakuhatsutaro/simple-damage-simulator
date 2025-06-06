@@ -169,62 +169,59 @@
         totalDamages.push(total);
       }
 
-      totalDamages.sort((a, b) => b - a);
-      const thresholds = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50];
-      let output = `<strong>試行回数: ${trialCount.toLocaleString()}</strong><br><br><strong>上位x%のダメージしきい値</strong><br>`;
-      for (const x of thresholds) {
-        const index = Math.floor(trialCount * (x / 100)) - 1;
-        const dmg = totalDamages[index];
-        output += `上位 ${x}%: ${dmg.toLocaleString()}<br>`;
-      }
+    // 1. ソート（大きい順）
+    totalDamages.sort((a, b) => b - a);
 
-      if (errorMessages.length > 0) {
-        document.getElementById("error").innerHTML = errorMessages.join("<br>");
-      }
+    // 2. 0.5%刻みで1-F(x)計算（パーセンタイル点を取得）
+    const points = [];
+    for (let p = 0; p <= 100; p += 0.5) {
+      if (p === 100) continue; // 100%点は不要
+      const index = Math.floor(totalDamages.length * (p / 100));
+      const threshold = totalDamages[index];
+      const prob = 1 - p / 100;
+      points.push({ x: threshold, y: prob });
+    }
 
-      document.getElementById("parsedData").innerHTML = debugInfo;
-      document.getElementById("result").innerHTML = output;
+    // 3. 横軸を大きい→小さいにするため配列はそのまま使う（x:しきい値、y:それ以上の確率）
 
-      const min = Math.min(...totalDamages);
-      const max = Math.max(...totalDamages);
-      const binCount = 50;
-      const binSize = Math.ceil((max - min + 1) / binCount);
-      const bins = new Array(binCount).fill(0);
-      for (const dmg of totalDamages) {
-        const index = Math.min(Math.floor((dmg - min) / binSize), binCount - 1);
-        bins[index]++;
-      }
-
-      const labels = [];
-      for (let i = 0; i < binCount; i++) {
-        const start = min + i * binSize;
-        const end = start + binSize - 1;
-        labels.push(`${start.toLocaleString()}-${end.toLocaleString()}`);
-      }
-
-      const ctx = document.getElementById('histogramChart').getContext('2d');
-      if (chartInstance) chartInstance.destroy();
-      chartInstance = new Chart(ctx, {
-        type: 'bar',
-        data: { labels: labels, datasets: [{ label: 'ダメージ頻度', data: bins }] },
-        options: {
-          responsive: true,
-          scales: {
-            x: { ticks: { autoSkip: true, maxTicksLimit: 20, minRotation: 45 }, title: { display: true, text: '合計ダメージ範囲' } },
-            y: { title: { display: true, text: '頻度' } }
+    // 4. Chart.jsでscatter描画（線なし・点のみ）
+    const ctx = document.getElementById('histogramChart').getContext('2d');
+    if (chartInstance) chartInstance.destroy();
+    chartInstance = new Chart(ctx, {
+      type: 'scatter',
+      data: {
+        datasets: [{
+          label: '1-F(x): x以上となる確率',
+          data: points,
+          showLine: true,
+          pointRadius: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: {
+            title: { display: true, text: '合計ダメージ' },
+            // 横軸を「大→小」で逆向きにする
+            reverse: true
           },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                title: (items) => `範囲: ${items[0].label}`,
-                label: (item) => `件数: ${item.raw}`
-              }
+          y: {
+            title: { display: true, text: 'x以上の確率（1-F(x))' },
+            min: 0,
+            max: 1
+          }
+        },
+        plugins: {
+          legend: { display: true },
+          tooltip: {
+            callbacks: {
+              label: (item) => `ダメージ: ${item.parsed.x}, 確率: ${(item.parsed.y * 100).toFixed(2)}%`
             }
           }
         }
-      });
-    }
-  </script>
+      }
+    });
+  }
+</script>
 </body>
 </html>
