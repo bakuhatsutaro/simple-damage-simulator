@@ -192,7 +192,7 @@
       const points = [];
       for (let p = 0; p <= 100; p += 0.5) {
         if (p === 100) continue;
-        const index = Math.floor(totalDamages.length * (p / 100));
+        const index = Math.floor(totalDamages.length * (1 - p / 100));
         const threshold = totalDamages[index];
         const prob = 1 - p / 100;
         points.push({ x: threshold, y: prob });
@@ -205,7 +205,7 @@
         type: 'scatter',
         data: {
           datasets: [{
-            label: '1-F(x): x以上となる確率',
+            label: 'このダメージ以上となる確率',
             data: points,
             showLine: true, // 線でつなぐ！
             pointRadius: 3
@@ -215,11 +215,10 @@
           responsive: true,
           scales: {
             x: {
-              title: { display: true, text: '合計ダメージ' },
-              reverse: true // ダメージ値が大きい→小さい
+              title: { display: true, text: '合計ダメージ' }
             },
             y: {
-              title: { display: true, text: 'x以上の確率（1-F(x))' },
+              title: { display: true, text: 'x以上の確率 1-F(x)' },
               min: 0,
               max: 1
             }
