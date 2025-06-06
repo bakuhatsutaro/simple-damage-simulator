@@ -2,31 +2,37 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>ダメージシミュレーター（ガイド付き）</title>
+  <title>ダメージシミュレーター（ガイド・エラー表示対応）</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: sans-serif; }
+    #guide { background: #f0f8ff; padding: 1em; border: 1px solid #ccc; margin-bottom: 1em; }
+    #error { color: red; font-weight: bold; }
+  </style>
 </head>
 <body>
   <h2>ヒット範囲のシミュレーション（1万回）</h2>
 
-  <h3>📘 入力形式ガイド</h3>
-  <ul>
-    <li><strong>ヒット行:</strong> <code>ヒット1</code>、<code>ヒット3-5</code>、<code>ヒット1-3, 5, 7-8</code> のように記述</li>
-    <li><strong>通常ダメージ:</strong> 次の行に <code>11,000 - 13,000</code> のように「下限 - 上限」で記述</li>
-    <li><strong>会心ダメージ:</strong> 「<code>会心</code>」と書いた行の次に、会心時ダメージのレンジを同様に記述</li>
-    <li><strong>注意:</strong> <code>(99.13%)</code> などの % 表示は無視されます。入力しても構いません。</li>
-    <li>うまく読み取ってくれないケースがあったらぼくに連絡ください。ChatGPTに頼んで読み取れるように改造してもらいます。お気軽にご連絡ください。</li>
-  </ul>
-  <pre>
+  <div id="guide">
+    <h3>📘 入力形式ガイド</h3>
+    <ul>
+      <li><strong>ヒット行:</strong> <code>ヒット1</code>、<code>ヒット3-5</code>、<code>ヒット1-3, 5, 7-8</code> のように記述</li>
+      <li><strong>通常ダメージ:</strong> 次の行に <code>11,000 - 13,000</code> のように記述</li>
+      <li><strong>会心ダメージ:</strong> 「<code>会心</code>」の次の行に同様のレンジを記述</li>
+      <li><strong>注意:</strong> <code>(99.13%)</code> などの % 表示は無視されます</li>
+    </ul>
+    <pre>
 例:
 ヒット1-3, 5, 7
 10,000 - 12,000
 会心
 20,000 - 24,000
-  </pre>
+    </pre>
+  </div>
 
   <label>会心確率 (%): <input type="text" id="critRateInput" placeholder="45.43"></label><br><br>
 
-  <textarea id="inputText" rows="20" cols="100">
+  <textarea id="inputText" rows="12" cols="60">
 ヒット1-3, 5-6, 8, 10, 12
 283 - 371
 会心
@@ -40,6 +46,7 @@
   <button onclick="simulate()">シミュレーション開始</button>
   <p id="parsedData"></p>
   <p id="result"></p>
+  <div id="error"></div>
   <canvas id="histogramChart" width="800" height="400"></canvas>
 
   <script>
@@ -58,6 +65,7 @@
     }
 
     function simulate() {
+      document.getElementById("error").innerHTML = "";
       const critRateInput = document.getElementById("critRateInput").value.trim();
       const critRate = parseFloat(critRateInput) / 100 || 0.4543;
 
@@ -66,6 +74,7 @@
 
       let hitBlocks = [];
       let debugInfo = `<strong>会心確率: ${(critRate * 100).toFixed(2)}%</strong><br><br><strong>読み取ったブロック情報:</strong><br>`;
+      let errorMessages = [];
 
       let i = 0;
       while (i < lines.length) {
@@ -73,6 +82,7 @@
           const hitLine = lines[i];
           const match = hitLine.match(/ヒット(.+?)(?:\s|\(|$)/);
           if (!match) {
+            errorMessages.push(`❌ ヒット行が読み取れません: "${hitLine}"`);
             i++;
             continue;
           }
@@ -80,23 +90,45 @@
           const hitSpec = match[1];
           const hitNumbers = [];
 
-          hitSpec.split(',').forEach(part => {
-            const trimmed = part.trim();
-            if (trimmed.includes('-')) {
-              const [start, end] = trimmed.split('-').map(n => parseInt(n));
-              for (let k = start; k <= end; k++) hitNumbers.push(k);
-            } else {
-              hitNumbers.push(parseInt(trimmed));
-            }
-          });
+          try {
+            hitSpec.split(',').forEach(part => {
+              const trimmed = part.trim();
+              if (trimmed.includes('-')) {
+                const [start, end] = trimmed.split('-').map(n => parseInt(n));
+                for (let k = start; k <= end; k++) hitNumbers.push(k);
+              } else {
+                hitNumbers.push(parseInt(trimmed));
+              }
+            });
+          } catch {
+            errorMessages.push(`❌ ヒット番号が解析できませんでした: "${hitSpec}"`);
+            i++;
+            continue;
+          }
 
           const hits = hitNumbers.length;
 
-          const [low1, high1] = parseRange(lines[i + 1]);
+          const [low1, high1] = parseRange(lines[i + 1]) || [];
+          if (!low1 || !high1) {
+            errorMessages.push(`❌ 通常ダメージ範囲が不正です（ヒット${hitSpec}）`);
+            i++;
+            continue;
+          }
 
           let critIndex = i + 2;
           while (critIndex < lines.length && lines[critIndex] !== "会心") critIndex++;
-          const [low2, high2] = parseRange(lines[critIndex + 1]);
+          if (critIndex + 1 >= lines.length) {
+            errorMessages.push(`❌ 会心ダメージが見つかりません（ヒット${hitSpec}）`);
+            i++;
+            continue;
+          }
+
+          const [low2, high2] = parseRange(lines[critIndex + 1]) || [];
+          if (!low2 || !high2) {
+            errorMessages.push(`❌ 会心ダメージ範囲が不正です（ヒット${hitSpec}）`);
+            i++;
+            continue;
+          }
 
           hitBlocks.push({
             hits: hits,
@@ -112,6 +144,13 @@
         } else {
           i++;
         }
+      }
+
+      if (hitBlocks.length === 0) {
+        document.getElementById("parsedData").innerHTML = "";
+        document.getElementById("result").innerHTML = "";
+        document.getElementById("error").innerHTML = errorMessages.join("<br>");
+        return;
       }
 
       const trialCount = 10000;
@@ -131,12 +170,15 @@
 
       totalDamages.sort((a, b) => b - a);
       const thresholds = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50];
-      let output = `<strong>試行回数: ${trialCount.toLocaleString()}</strong><br><br>`;
-      output += `<strong>上位x%のダメージしきい値</strong><br>`;
+      let output = `<strong>試行回数: ${trialCount.toLocaleString()}</strong><br><br><strong>上位x%のダメージしきい値</strong><br>`;
       for (const x of thresholds) {
         const index = Math.floor(trialCount * (x / 100)) - 1;
         const dmg = totalDamages[index];
         output += `上位 ${x}%: ${dmg.toLocaleString()}<br>`;
+      }
+
+      if (errorMessages.length > 0) {
+        document.getElementById("error").innerHTML = errorMessages.join("<br>");
       }
 
       document.getElementById("parsedData").innerHTML = debugInfo;
