@@ -10,19 +10,19 @@
 
   <label>会心確率 (%): <input type="text" id="critRateInput" placeholder="45.43"></label><br><br>
 
-  <textarea id="inputText" rows="12" cols="60">
-ヒット1-24 (71.96%)
-19,702 - 25,824
+  <textarea id="inputText" rows="16" cols="60">
+ヒット1
+11,094 - 12,446
 会心
-73,785 - 96,711
-ヒット25-44 (118.34%)
-32,402 - 42,470
+29,242 - 32,806
+ヒット2
+11,097 - 12,449
 会心
-121,345 - 159,049
-ヒット45-46 (120.51%)
-32,995 - 43,248
+29,249 - 32,814
+ヒット3
+88,796 - 99,618
 会心
-123,567 - 161,962
+234,056 - 262,584
   </textarea><br>
 
   <button onclick="simulate()">シミュレーション開始</button>
@@ -55,41 +55,46 @@
       let hitBlocks = [];
       let debugInfo = `<strong>会心確率: ${(critRate * 100).toFixed(2)}%</strong><br><br><strong>読み取ったブロック情報:</strong><br>`;
 
-      // ヒットブロックの解析
       let i = 0;
       while (i < lines.length) {
         if (lines[i].startsWith("ヒット")) {
-          // ヒットN または ヒットN-M にマッチするよう修正
           const hitMatch = lines[i].match(/ヒット(\d+)(?:-(\d+))?/);
           if (!hitMatch) {
             i++;
             continue;
           }
-      
+
           const hitStart = parseInt(hitMatch[1]);
           const hitEnd = hitMatch[2] ? parseInt(hitMatch[2]) : hitStart;
           const hits = hitEnd - hitStart + 1;
-      
+
           const [low1, high1] = parseRange(lines[i + 1]);
-          const [low2, high2] = parseRange(lines[i + 3]);
-      
+
+          // 「会心」という行を探す（例外的にヒットごとに変わる行数に対応）
+          let critIndex = i + 2;
+          while (critIndex < lines.length && lines[critIndex] !== "会心") {
+            critIndex++;
+          }
+
+          const [low2, high2] = parseRange(lines[critIndex + 1]);
+
           hitBlocks.push({
             hits: hits,
             normal: [low1, high1],
             crit: [low2, high2]
           });
-      
+
           debugInfo += `【ヒット${hitStart}${hitMatch[2] ? "-" + hitEnd : ""}】 ヒット数: ${hits}<br>`;
           debugInfo += `　通常ダメージ: ${low1.toLocaleString()} - ${high1.toLocaleString()}<br>`;
           debugInfo += `　会心ダメージ: ${low2.toLocaleString()} - ${high2.toLocaleString()}<br><br>`;
-      
-          i += 4;
+
+          i = critIndex + 2;
         } else {
           i++;
         }
       }
 
-      // シミュレーション実行
+      // シミュレーション
       const trialCount = 10000;
       let totalDamages = [];
 
@@ -105,12 +110,11 @@
         totalDamages.push(total);
       }
 
-      // 上位x%表示
+      // 上位x%出力
       totalDamages.sort((a, b) => b - a);
       const thresholds = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50];
       let output = `<strong>試行回数: ${trialCount.toLocaleString()}</strong><br><br>`;
       output += `<strong>上位x%のダメージしきい値</strong><br>`;
-
       for (const x of thresholds) {
         const index = Math.floor(trialCount * (x / 100)) - 1;
         const dmg = totalDamages[index];
@@ -120,13 +124,12 @@
       document.getElementById("parsedData").innerHTML = debugInfo;
       document.getElementById("result").innerHTML = output;
 
-      // ヒストグラム描画
+      // ヒストグラム
       const min = Math.min(...totalDamages);
       const max = Math.max(...totalDamages);
       const binCount = 50;
       const binSize = Math.ceil((max - min + 1) / binCount);
       const bins = new Array(binCount).fill(0);
-
       for (const dmg of totalDamages) {
         const index = Math.min(Math.floor((dmg - min) / binSize), binCount - 1);
         bins[index]++;
@@ -134,9 +137,9 @@
 
       const labels = [];
       for (let i = 0; i < binCount; i++) {
-        const rangeStart = min + i * binSize;
-        const rangeEnd = rangeStart + binSize - 1;
-        labels.push(`${rangeStart.toLocaleString()}-${rangeEnd.toLocaleString()}`);
+        const start = min + i * binSize;
+        const end = start + binSize - 1;
+        labels.push(`${start.toLocaleString()}-${end.toLocaleString()}`);
       }
 
       const ctx = document.getElementById('histogramChart').getContext('2d');
@@ -154,22 +157,11 @@
           responsive: true,
           scales: {
             x: {
-              ticks: {
-                maxRotation: 90,
-                minRotation: 45,
-                autoSkip: true,
-                maxTicksLimit: 15
-              },
-              title: {
-                display: true,
-                text: '合計ダメージ範囲'
-              }
+              ticks: { autoSkip: true, maxTicksLimit: 20, minRotation: 45 },
+              title: { display: true, text: '合計ダメージ範囲' }
             },
             y: {
-              title: {
-                display: true,
-                text: '頻度'
-              }
+              title: { display: true, text: '頻度' }
             }
           },
           plugins: {
