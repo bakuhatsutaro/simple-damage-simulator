@@ -81,9 +81,12 @@
       let i = 0;
       while (i < lines.length) {
         if (lines[i].startsWith("ヒット")) {
-          const hitLine = lines[i];
-          const rawSpec = hitLine.replace(/^ヒット/, '').replace(/,/g, ' ');
-          const parts = rawSpec.split(/\s+/);
+          // ★ ヒット行のカッコ・%等は全て除去、空白・カンマも正規化 ★
+          const rawSpec = lines[i].replace(/^ヒット/, '')
+            .replace(/\(.*?\)/g, '')  // カッコと中身を除去
+            .replace(/,/g, ' ')
+            .trim();
+          const parts = rawSpec.split(/\s+/).filter(s => s.length > 0);
           const hitNumbers = [];
           let valid = true;
 
@@ -93,13 +96,15 @@
               const [start, end] = trimmed.split('-').map(Number);
               if (start > end || isNaN(start) || isNaN(end)) {
                 valid = false;
+                errorMessages.push(`ヒット範囲不正: "${trimmed}"`);
                 break;
               }
               for (let k = start; k <= end; k++) hitNumbers.push(k);
             } else if (/^\d+$/.test(trimmed)) {
               hitNumbers.push(Number(trimmed));
-            } else {
+            } else if (trimmed.length > 0) {  // 空文字は無視
               valid = false;
+              errorMessages.push(`ヒット番号として認識できない要素: "${trimmed}"`);
               break;
             }
           }
@@ -172,7 +177,7 @@
       // ソート（大きい順）
       totalDamages.sort((a, b) => b - a);
 
-      // 上位パーセンタイル表示（この部分は元のまま残してあります）
+      // 上位パーセンタイル表示
       const thresholds = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50];
       let output = `<strong>試行回数: ${trialCount.toLocaleString()}</strong><br><br><strong>上位x%のダメージしきい値</strong><br>`;
       for (const x of thresholds) {
@@ -207,7 +212,7 @@
           datasets: [{
             label: 'このダメージ以上となる確率',
             data: points,
-            showLine: true, // 線でつなぐ！
+            showLine: true,
             pointRadius: 3
           }]
         },
