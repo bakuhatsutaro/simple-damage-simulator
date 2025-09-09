@@ -11,14 +11,24 @@
   </style>
 </head>
 <body>
-  <h2>シミュレーション（1万回）</h2>
+  <h2>簡単ダメージシミュレーター（2025年9月8日版）</h2>
 
   <div id="guide">
+    どこかで見たことのあるダメージ表現式をコピペすると合計ダメージの確率計算をしてくれます。<br>
+    <b>New!!</b> 確定会心・確定非会心の場合と安定値ガチャがない場合にようやく対応しました。<br>
     <h3>📘 入力形式ガイド</h3>
     <ul>
       <li><strong>ヒット行:</strong> <code>ヒット1-3, 5, 7-8</code> のように記載。ここの読み取り失敗が起こりやすいので、不規則なヒットをしていたとしても、多少嘘ついてヒット1-8のような単純な書き方に変えることを強く推奨します</li>
-      <li><strong>通常ダメージ:</strong> 次の行に <code>11,000 - 13,000</code> のように記載</li>
-      <li><strong>会心ダメージ:</strong> 「<code>会心</code>」の次の行に同様にダメージの範囲を記載</li>
+      <li><strong>通常ダメージ:</strong> 次の行に <code>11,000 - 13,000</code> のように記載
+        <ul>
+          <li>右側が欠けている場合、ダメージは一定（安定値ガチャがない）と解釈されます</li>
+        </ul>
+      </li>
+      <li><strong>会心ダメージ:</strong> 「<code>会心</code>」の次の行に同様にダメージの範囲を記載
+        <ul>
+          <li>「会心」の記述がない場合は確定会心あるいは確定非会心と解釈されます。</li>
+        </ul>
+      </li>
       <li><code>(99.13%)</code> などの % 表示は使いませんので無視されます</li>
     </ul>
     <pre>
@@ -66,11 +76,39 @@
     let chartInstance = null;
 
     function parseRange(line) {
-      const match = line.match(/([\d,]+)\s*-\s*([\d,]+)/);
-      if (!match) return null;
-      const low = parseInt(match[1].replace(/,/g, ''));
-      const high = parseInt(match[2].replace(/,/g, ''));
-      if (isNaN(low) || isNaN(high)) return null;
+      // 1. -区切りで文字列を分割
+      const parts = line.split('-');
+      
+      // 2. 分割された文字列の１番目と２番目を空白を削除した後に数字にparseする
+      let low = null;
+      if (parts.length > 0) {
+        const firstPart = parts[0].trim().replace(/,/g, ''); // カンマも除去
+        const parsed = parseInt(firstPart);
+        if (!isNaN(parsed)) {
+          low = parsed;
+        }
+      }
+      
+      let high = null;
+      if (parts.length > 1) {
+        const secondPart = parts[1].trim().replace(/,/g, ''); // カンマも除去
+        const parsed = parseInt(secondPart);
+        if (!isNaN(parsed)) {
+          high = parsed;
+        }
+      }
+      
+      // lowが解析できない場合はnullを返す
+      if (low === null) {
+        return null;
+      }
+      
+      // もしも２番目が存在しないならhigh = lowとする
+      if (high === null) {
+        high = low;
+      }
+      
+      // 3. [low, high]をリターンする
       return [low, high];
     }
 
@@ -78,99 +116,172 @@
       return Math.floor(Math.random() * (high - low + 1)) + low;
     }
 
-    function simulate() {
-      document.getElementById("error").innerHTML = "";
+    function validateAndParseInput() {
       const critRateInput = document.getElementById("critRateInput").value.trim();
       const critRate = parseFloat(critRateInput) / 100 || 0.4543;
-
       const input = document.getElementById("inputText").value;
       const lines = input.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+      
+      return { critRate, lines };
+    }
 
+    function processInput(input) {
       let hitBlocks = [];
-      let debugInfo = `<strong>会心確率: ${(critRate * 100).toFixed(2)}%</strong><br><br><strong>読み取ったブロック情報:</strong><br>`;
+      let debugInfo = `<strong>読み取ったブロック情報:</strong><br>`;
       let errorMessages = [];
 
-      let i = 0;
-      while (i < lines.length) {
-        if (lines[i].startsWith("ヒット")) {
-          // ★ ヒット行のカッコ・%等は全て除去、空白・カンマも正規化 ★
-          const rawSpec = lines[i].replace(/^ヒット/, '')
-            .replace(/\(.*?\)/g, '')  // カッコと中身を除去
-            .replace(/,/g, ' ')
-            .trim();
-          const parts = rawSpec.split(/\s+/).filter(s => s.length > 0);
-          const hitNumbers = [];
-          let valid = true;
+      // オリジナルの文字列を「ヒット」で分割
+      const splitByHit = input.split('ヒット').filter(part => part.trim().length > 0);
+      
+      for (let index = 0; index < splitByHit.length; index++) {
+        const part = splitByHit[index];
+        const lines = part.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        
+        // 最初の行からヒット数を計算
+        let hits = 0;
+        if (lines.length > 0) {
+          const hitLine = 'ヒット' + lines[0]; // parseHitNumbers用に「ヒット」を付け直す
+          const hitParseResult = parseHitNumbers(hitLine);
+          hits = hitParseResult.valid ? hitParseResult.hitNumbers.length : 0;
+        }
 
-          for (const part of parts) {
-            const trimmed = part.trim();
-            if (/^\d+-\d+$/.test(trimmed)) {
-              const [start, end] = trimmed.split('-').map(Number);
-              if (start > end || isNaN(start) || isNaN(end)) {
-                valid = false;
-                errorMessages.push(`ヒット範囲不正: "${trimmed}"`);
-                break;
-              }
-              for (let k = start; k <= end; k++) hitNumbers.push(k);
-            } else if (/^\d+$/.test(trimmed)) {
-              hitNumbers.push(Number(trimmed));
-            } else if (trimmed.length > 0) {  // 空文字は無視
-              valid = false;
-              errorMessages.push(`ヒット番号として認識できない要素: "${trimmed}"`);
-              break;
-            }
+        let normalRange = null;
+        let critRange = null;
+        let inCritMode = false;
+        for (const currentLine of lines.slice(1)) {
+          let processedLine = currentLine;
+          if (processedLine.includes("会心")) {
+            inCritMode = true;
+            processedLine = processedLine.replace("会心", "");
           }
-
-          if (!valid || hitNumbers.length === 0) {
-            errorMessages.push(`❌ ヒット番号が解析できませんでした: "${rawSpec}"`);
-            i++;
-            continue;
+          if (!inCritMode && normalRange === null) {
+            const parsed = parseRange(processedLine);
+            if (parsed) normalRange = parsed;
+          } else if (inCritMode && critRange === null) {
+            const parsed = parseRange(processedLine);
+            if (parsed) critRange = parsed;
           }
+        }
 
-          const hits = hitNumbers.length;
-
-          const parsedNormal = parseRange(lines[i + 1]);
-          if (!parsedNormal) {
-            errorMessages.push(`❌ 通常ダメージ範囲が不正または欠損しています（ヒット${rawSpec}）: "${lines[i + 1]}"`);
-            i++;
-            continue;
-          }
-          const [low1, high1] = parsedNormal;
-
-          let critIndex = i + 2;
-          while (critIndex < lines.length && lines[critIndex] !== "会心") critIndex++;
-          if (critIndex + 1 >= lines.length) {
-            errorMessages.push(`❌ 会心ダメージが見つかりません（ヒット${rawSpec}）`);
-            i++;
-            continue;
-          }
-
-          const parsedCrit = parseRange(lines[critIndex + 1]);
-          if (!parsedCrit) {
-            errorMessages.push(`❌ 会心ダメージ範囲が不正または欠損しています（ヒット${rawSpec}）: "${lines[critIndex + 1]}"`);
-            i++;
-            continue;
-          }
-          const [low2, high2] = parsedCrit;
-
-          hitBlocks.push({ hits: hits, normal: [low1, high1], crit: [low2, high2] });
-          debugInfo += `【ヒット${rawSpec}】 ヒット数: ${hits}<br>`;
-          debugInfo += `　通常ダメージ: ${low1.toLocaleString()} - ${high1.toLocaleString()}<br>`;
-          debugInfo += `　会心ダメージ: ${low2.toLocaleString()} - ${high2.toLocaleString()}<br><br>`;
-
-          i = critIndex + 2;
+        if (critRange === null) {
+          critRange = normalRange; // 会心ダメージがない場合、通常ダメージと同じにする
+        }
+        
+        if (hits > 0 && normalRange && critRange) {
+          // hitNumbersの代わりにhitsを直接使用するためのダミー配列を作成
+          const dummyHitNumbers = Array(hits).fill(0).map((_, i) => i + 1);
+          const blockResult = createHitBlock(dummyHitNumbers, normalRange, critRange, null);
+          hitBlocks.push(blockResult.hitBlock);
+          debugInfo += blockResult.debugHtml;
         } else {
-          i++;
+          errorMessages.push(`❌ ブロックの解析に失敗しました（ヒット数: ${hits}, 通常ダメージ: ${normalRange ? normalRange.join('-') : 'なし'}, 会心ダメージ: ${critRange ? critRange.join('-') : 'なし'}）`);
+        }
+      }
+      
+      // コンソールログで出力
+      console.log('=== processInput 結果 ===');
+      console.log('元の文字列:', input);
+      console.log('解析されたhitBlocks:', hitBlocks);
+      console.log('エラーメッセージ:', errorMessages);
+      console.log('========================');
+
+      return { hitBlocks, debugInfo, errorMessages };
+    }
+
+    function parseHitNumbers(hitLine) {
+      // ★ ヒット行のカッコ・%等は全て除去、空白・カンマも正規化 ★
+      const rawSpec = hitLine.replace(/^ヒット/, '')
+        .replace(/\(.*?\)/g, '')  // カッコと中身を除去
+        .replace(/,/g, ' ')
+        .trim();
+      const parts = rawSpec.split(/\s+/).filter(s => s.length > 0);
+      const hitNumbers = [];
+      const errors = [];
+      let valid = true;
+
+      for (const part of parts) {
+        const trimmed = part.trim();
+        if (/^\d+-\d+$/.test(trimmed)) {
+          const [start, end] = trimmed.split('-').map(Number);
+          if (start > end || isNaN(start) || isNaN(end)) {
+            valid = false;
+            errors.push(`ヒット範囲不正: "${trimmed}"`);
+            break;
+          }
+          for (let k = start; k <= end; k++) hitNumbers.push(k);
+        } else if (/^\d+$/.test(trimmed)) {
+          hitNumbers.push(Number(trimmed));
+        } else if (trimmed.length > 0) {  // 空文字は無視
+          valid = false;
+          errors.push(`ヒット番号として認識できない要素: "${trimmed}"`);
+          break;
         }
       }
 
-      if (hitBlocks.length === 0) {
-        document.getElementById("parsedData").innerHTML = "";
-        document.getElementById("result").innerHTML = "";
-        document.getElementById("error").innerHTML = errorMessages.join("<br>");
-        return;
+      if (!valid || hitNumbers.length === 0) {
+        errors.push(`❌ ヒット番号が解析できませんでした: "${rawSpec}"`);
       }
 
+      return { hitNumbers, rawSpec, errors, valid: valid && hitNumbers.length > 0 };
+    }
+
+    // extractDamageRanges - 文字列からダメージ範囲を抽出
+    function extractDamageRanges(line) {
+      // ハイフンで分割
+      const parts = line.split('-');
+      
+      // 最初の要素から空白を除去し、数字にパース
+      let first_damage = null;
+      if (parts.length > 0) {
+        const firstPart = parts[0].trim().replace(/,/g, ''); // カンマも除去
+        const parsed = parseInt(firstPart);
+        if (!isNaN(parsed)) {
+          first_damage = parsed;
+        }
+      }
+      
+      // 2個目が存在する場合、同様にパース
+      let second_damage = null;
+      if (parts.length > 1) {
+        const secondPart = parts[1].trim().replace(/,/g, ''); // カンマも除去
+        const parsed = parseInt(secondPart);
+        if (!isNaN(parsed)) {
+          second_damage = parsed;
+        }
+      }
+      
+      // first_damageがnullの場合は[null, null]を返す
+      if (first_damage === null) {
+        return [null, null];
+      }
+      
+      // second_damageがnullまたは不正な値の場合、first_damageと同じ値にする
+      if (second_damage === null || second_damage <= 0) {
+        second_damage = first_damage;
+      }
+      
+      return [first_damage, second_damage];
+    }
+
+    // createHitBlock - hitBlock情報が読みやすいように正規化
+    function createHitBlock(hitNumbers, normalRange, critRange, rawSpec) {
+      const hits = hitNumbers.length;
+      const [low1, high1] = normalRange;
+      const [low2, high2] = critRange;
+
+      const hitBlock = { hits: hits, normal: [low1, high1], crit: [low2, high2] };
+      
+      // rawSpecが空の場合は【】部分を表示しない
+      const hitLabel = (rawSpec && rawSpec.trim()) ? `【ヒット${rawSpec}】 ` : "";
+      
+      const debugHtml = `${hitLabel}ヒット数: ${hits}<br>` +
+                       `　通常ダメージ: ${low1.toLocaleString()} - ${high1.toLocaleString()}<br>` +
+                       `　会心ダメージ: ${low2.toLocaleString()} - ${high2.toLocaleString()}<br><br>`;
+
+      return { hitBlock, debugHtml };
+    }
+
+    function runSimulation(hitBlocks, critRate) {
       const trialCount = 10000;
       let totalDamages = [];
 
@@ -186,10 +297,14 @@
         totalDamages.push(total);
       }
 
+      return totalDamages;
+    }
+
+    function calculateStatistics(totalDamages) {
       // ソート（大きい順）
       totalDamages.sort((a, b) => b - a);
 
-      // 上位パーセンタイル表示
+      const trialCount = totalDamages.length;
       const thresholds = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50];
       let output = `<strong>試行回数: ${trialCount.toLocaleString()}</strong><br><br><strong>上位x%のダメージしきい値</strong><br>`;
       for (const x of thresholds) {
@@ -198,13 +313,21 @@
         output += `上位 ${x}%: ${dmg.toLocaleString()}<br>`;
       }
 
+      return output;
+    }
+
+    function updateDisplay(critRate, debugInfo, resultOutput, errorMessages) {
+      const finalDebugInfo = `<strong>会心確率: ${(critRate * 100).toFixed(2)}%</strong><br><br>` + debugInfo;
+      
       if (errorMessages.length > 0) {
         document.getElementById("error").innerHTML = errorMessages.join("<br>");
       }
 
-      document.getElementById("parsedData").innerHTML = debugInfo;
-      document.getElementById("result").innerHTML = output;
+      document.getElementById("parsedData").innerHTML = finalDebugInfo;
+      document.getElementById("result").innerHTML = resultOutput;
+    }
 
+    function renderChart(totalDamages) {
       // ★1-F(x)生存関数グラフ用データ作成★（0.5%刻み）
       const points = [];
       for (let p = 0; p <= 100; p += 0.5) {
@@ -250,6 +373,36 @@
           }
         }
       });
+    }
+
+    function simulate() {
+      document.getElementById("error").innerHTML = "";
+      
+      // 1. 入力検証と解析
+      const { critRate } = validateAndParseInput();
+      
+      // 2. 新しい方式でヒットブロック解析
+      const input = document.getElementById("inputText").value;
+      const { hitBlocks, debugInfo, errorMessages } = processInput(input);
+      
+      if (hitBlocks.length === 0) {
+        document.getElementById("parsedData").innerHTML = "";
+        document.getElementById("result").innerHTML = "";
+        document.getElementById("error").innerHTML = errorMessages.join("<br>");
+        return;
+      }
+      
+      // 3. シミュレーション実行
+      const totalDamages = runSimulation(hitBlocks, critRate);
+      
+      // 4. 統計計算
+      const resultOutput = calculateStatistics(totalDamages);
+      
+      // 5. 表示更新
+      updateDisplay(critRate, debugInfo, resultOutput, errorMessages);
+      
+      // 6. グラフ描画
+      renderChart(totalDamages);
     }
   </script>
 </body>
