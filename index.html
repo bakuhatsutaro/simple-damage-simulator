@@ -200,6 +200,9 @@ Hit部分の数字はHit数計算のみに使われます
         if (critRange === null) {
           critRange = normalRange; // 会心ダメージがない場合、通常ダメージと同じにする
         }
+        if (normalRange === null) {
+          normalRange = critRange; // 通常ダメージがない場合、会心ダメージと同じにする
+        }
         
         if (hits > 0 && normalRange && critRange) {
           // hitNumbersの代わりにhitsを直接使用するためのダミー配列を作成
