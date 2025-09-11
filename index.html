@@ -8,14 +8,20 @@
     body { font-family: sans-serif; }
     #guide { background: #f0f8ff; padding: 1em; border: 1px solid #ccc; margin-bottom: 1em; }
     #error { color: red; font-weight: bold; }
+    #critRateInput, #hitRateInput { 
+      width: 60px; 
+      font-size: 1.1em; 
+      padding: 4px; 
+    }
   </style>
 </head>
 <body>
-  <h2>簡単ダメージシミュレーター（2025年9月8日版）</h2>
+  <h2>簡単ダメージシミュレーター（2025年9月11日版）</h2>
 
   <div id="guide">
     どこかで見たことのあるダメージ表現式をコピペすると合計ダメージの確率計算をしてくれます。<br>
-    <b>New!!</b> 確定会心・確定非会心の場合と安定値ガチャがない場合にようやく対応しました。<br>
+    <b>New!! (2025/09/08)</b> 確定会心・確定非会心の場合と安定値ガチャがない場合にようやく対応しました。<br>
+    <b>New!! (2025/09/11)</b> 命中率に対応しました。<br>
     <h3>📘 入力形式ガイド</h3>
     <ul>
       <li><strong>ヒット行:</strong> <code>ヒット1-3, 5, 7-8</code> のように記載。ここの読み取り失敗が起こりやすいので、不規則なヒットをしていたとしても、多少嘘ついてヒット1-8のような単純な書き方に変えることを強く推奨します</li>
@@ -41,30 +47,31 @@
     <p>読み取ってくれないケースがあればお気軽にご連絡ください。</p>
   </div>
 
-  <label>会心確率 (%): <input type="text" id="critRateInput" placeholder="45.43"></label><br><br>
+  <label>会心確率 (%): <input type="text" id="critRateInput" placeholder="45.43"></label>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <label>命中率 (%): <input type="text" id="hitRateInput" placeholder="100"></label><br><br>
 
-  <textarea id="inputText" rows="12" cols="60">
-ヒット1-3, 5-6, 8, 10, 12
+  <textarea id="inputText" rows="30" cols="60" placeholder="ヒット1-3, 5-6, 8, 10, 12
 283 - 371
 会心
 482 - 631
+
+安定値ガチャなしも扱えます
 ヒット4, 7, 9, 11
-284 - 372
+284
 会心
-482 - 632
+482
+
+確定会心・非会心はこう書きます
 ヒット1-24 (63.42%)
 61,244 - 80,275
-会心
-229,360 - 300,628
-ヒット25-44 (104.30%)
+
+Hit部分の数字はHit数計算のみに使われます
+重複チェックしてないので重複しても大丈夫（２重に計算される）
+ヒット1, 2, 5-10 (104.30%)
 100,721 - 132,018
 会心
-377,201 - 494,406
-ヒット45-46 (106.21%)
-102,566 - 134,436
-会心
-384,109 - 503,461
-  </textarea><br>
+377,201 - 494,406"></textarea><br>
 
   <button onclick="simulate()">シミュレーション開始</button>
   <p id="parsedData"></p>
@@ -117,12 +124,37 @@
     }
 
     function validateAndParseInput() {
-      const critRateInput = document.getElementById("critRateInput").value.trim();
-      const critRate = parseFloat(critRateInput) / 100 || 0.4543;
-      const input = document.getElementById("inputText").value;
+      const critRateInputElement = document.getElementById("critRateInput");
+      let critRateInput = critRateInputElement.value.trim();
+      
+      // 会心確率が空の場合はプレースホルダーの内容を使用
+      if (critRateInput === "") {
+        critRateInput = critRateInputElement.placeholder;
+      }
+      
+      const baseCritRate = parseFloat(critRateInput) / 100;
+      
+      const hitRateInputElement = document.getElementById("hitRateInput");
+      let hitRateInput = hitRateInputElement.value.trim();
+      
+      // 命中率が空の場合はプレースホルダーの内容を使用
+      if (hitRateInput === "") {
+        hitRateInput = hitRateInputElement.placeholder;
+      }
+      
+      const baseHitRate = parseFloat(hitRateInput) / 100;
+      
+      const inputElement = document.getElementById("inputText");
+      let input = inputElement.value.trim();
+      
+      // テキストエリアが空の場合はプレースホルダーの内容を使用
+      if (input === "") {
+        input = inputElement.placeholder;
+      }
+      
       const lines = input.split('\n').map(line => line.trim()).filter(line => line.length > 0);
       
-      return { critRate, lines };
+      return { baseCritRate, baseHitRate, lines };
     }
 
     function processInput(input) {
@@ -281,7 +313,7 @@
       return { hitBlock, debugHtml };
     }
 
-    function runSimulation(hitBlocks, critRate) {
+    function runSimulation(hitBlocks, baseCritRate, baseHitRate) {
       const trialCount = 10000;
       let totalDamages = [];
 
@@ -289,9 +321,10 @@
         let total = 0;
         for (const block of hitBlocks) {
           for (let j = 0; j < block.hits; j++) {
-            const isCrit = Math.random() < critRate;
+            const isHit = Math.random() <= baseHitRate;
+            const isCrit = Math.random() <= baseCritRate;
             const [low, high] = isCrit ? block.crit : block.normal;
-            total += randomIntInRange(low, high);
+            total += isHit * randomIntInRange(low, high);
           }
         }
         totalDamages.push(total);
@@ -316,8 +349,8 @@
       return output;
     }
 
-    function updateDisplay(critRate, debugInfo, resultOutput, errorMessages) {
-      const finalDebugInfo = `<strong>会心確率: ${(critRate * 100).toFixed(2)}%</strong><br><br>` + debugInfo;
+    function updateDisplay(baseCritRate, baseHitRate, debugInfo, resultOutput, errorMessages) {
+      const finalDebugInfo = `<strong>会心確率: ${(baseCritRate * 100).toFixed(2)}% / 命中率: ${(baseHitRate * 100).toFixed(2)}%</strong><br><br>` + debugInfo;
       
       if (errorMessages.length > 0) {
         document.getElementById("error").innerHTML = errorMessages.join("<br>");
@@ -379,10 +412,17 @@
       document.getElementById("error").innerHTML = "";
       
       // 1. 入力検証と解析
-      const { critRate } = validateAndParseInput();
+      const { baseCritRate, baseHitRate } = validateAndParseInput();
       
       // 2. 新しい方式でヒットブロック解析
-      const input = document.getElementById("inputText").value;
+      const inputElement = document.getElementById("inputText");
+      let input = inputElement.value.trim();
+      
+      // テキストエリアが空の場合はプレースホルダーの内容を使用
+      if (input === "") {
+        input = inputElement.placeholder;
+      }
+      
       const { hitBlocks, debugInfo, errorMessages } = processInput(input);
       
       if (hitBlocks.length === 0) {
@@ -393,13 +433,13 @@
       }
       
       // 3. シミュレーション実行
-      const totalDamages = runSimulation(hitBlocks, critRate);
+      const totalDamages = runSimulation(hitBlocks, baseCritRate, baseHitRate);
       
       // 4. 統計計算
       const resultOutput = calculateStatistics(totalDamages);
       
       // 5. 表示更新
-      updateDisplay(critRate, debugInfo, resultOutput, errorMessages);
+      updateDisplay(baseCritRate, baseHitRate, debugInfo, resultOutput, errorMessages);
       
       // 6. グラフ描画
       renderChart(totalDamages);
