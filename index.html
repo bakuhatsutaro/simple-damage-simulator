@@ -16,12 +16,14 @@
   </style>
 </head>
 <body>
-  <h2>簡単ダメージシミュレーター（2025年9月11日版）</h2>
+  <h2>簡単ダメージシミュレーター（2025年10月10日版）</h2>
 
   <div id="guide">
     どこかで見たことのあるダメージ表現式をコピペすると合計ダメージの確率計算をしてくれます。<br>
-    <b>New!! (2025/09/08)</b> 確定会心・確定非会心の場合と安定値ガチャがない場合にようやく対応しました。<br>
-    <b>New!! (2025/09/11)</b> 命中率に対応しました。<br>
+    <b>実装予定：</b> 会心率バフや複数アタッカーに対応するため、会心率・回避率を途中で変更する機能を検討中です（<b>未実装！！</b>）。<br>
+    <b>New!! (2025/10/10)</b> コメント機能を実装しました。<br>
+    <b>(2025/09/08)</b> 確定会心・確定非会心の場合と安定値ガチャがない場合にようやく対応しました。<br>
+    <b>(2025/09/11)</b> 命中率に対応しました。<br>
     <h3>📘 入力形式ガイド</h3>
     <ul>
       <li><strong>ヒット行:</strong> <code>ヒット1-3, 5, 7-8</code> のように記載。ここの読み取り失敗が起こりやすいので、不規則なヒットをしていたとしても、多少嘘ついてヒット1-8のような単純な書き方に変えることを強く推奨します</li>
@@ -53,23 +55,24 @@
   <div style="color: #222; font-size: 0.8em; margin-top: 2px; margin-bottom: 6px;">
     空欄の場合は灰色で表示されているデフォルト値が適用されます。
   </div></div>
-  <textarea id="inputText" rows="30" cols="60" placeholder="ヒット1-3, 5-6, 8, 10, 12
+  <textarea id="inputText" rows="30" cols="60" placeholder="！このように「！」からはじまる行はコメントとして無視されます
+ヒット1-3, 5-6, 8, 10, 12　！ここにも書けます
 283 - 371
 会心
-482 - 631
+482 - 631　！どこにでも書けます
 
-安定値ガチャなしも扱えます
+！安定値ガチャなしも扱えます
 ヒット4, 7, 9, 11
 284
 会心
 482
 
-確定会心・非会心はこう書きます
+！確定会心・非会心はこう書きます
 ヒット1-24 (63.42%)
 61,244 - 80,275
 
-Hit部分の数字はHit数計算のみに使われます
-重複チェックしてないので重複しても大丈夫（２重に計算される）
+！ヒット部分の数字はヒット数計算のみに使われます
+！重複チェックしてないので重複しても大丈夫（２重に計算される）
 ヒット1, 2, 5-10 (104.30%)
 100,721 - 132,018
 会心
@@ -160,12 +163,17 @@ Hit部分の数字はHit数計算のみに使われます
     }
 
     function processInput(input) {
+      // コメント除去処理
+      const input_comments_removed = input.split('\n')
+        .map(line => line.replace(/[!！].*$/, ''))
+        .join('\n');
+  
       let hitBlocks = [];
       let debugInfo = `<strong>読み取ったブロック情報:</strong><br>`;
       let errorMessages = [];
 
       // オリジナルの文字列を「ヒット」で分割
-      const splitByHit = input.split('ヒット').filter(part => part.trim().length > 0);
+      const splitByHit = input_comments_removed.split('ヒット').filter(part => part.trim().length > 0);
       
       for (let index = 0; index < splitByHit.length; index++) {
         const part = splitByHit[index];
