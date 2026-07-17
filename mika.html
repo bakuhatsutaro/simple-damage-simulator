@@ -8,11 +8,30 @@
     body { font-family: sans-serif; }
     #guide { background: #f0f8ff; padding: 1em; border: 1px solid #ccc; margin-bottom: 1em; }
     #error { color: red; font-weight: bold; }
-    .inputRow { margin-bottom: 8px; }
-    .inputRow label { display: inline-block; min-width: 220px; }
+    .inputRow {
+      margin-bottom: 8px;
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      column-gap: 8px;
+      row-gap: 2px;
+    }
+    .inputRow label { display: inline-block; min-width: 220px; flex-shrink: 0; }
     .inputRow input, .inputRow select {
       font-size: 1.05em;
       padding: 4px;
+      flex-shrink: 0;
+    }
+    .inputRow .hint {
+      font-size: 0.75em;
+      color: #888;
+      white-space: nowrap;
+    }
+    /* 画面幅が狭い（モバイル・縦長ウィンドウ等）場合のみ、補足文言を入力欄の下に折り返す */
+    @media (max-width: 600px) {
+      .inputRow {
+        flex-wrap: wrap;
+      }
     }
     .numInput { width: 120px; }
     .accordion {
@@ -60,9 +79,9 @@
     <ul>
       <li><strong>生徒:</strong> 現在はミカのみ対応。他の生徒は今後拡張予定です。</li>
       <li><strong>ボスの最大HP・現在HP:</strong> 現在HPが入力されない場合は最大HPと同一と見なされます。</li>
-      <li><strong>1ヒット目のダメージ上限・下限:</strong> ダメージ計算で得られたスキル％適用後の数値を入力してください。</li>
-      <li><strong>前提HP（%）:</strong> 1ヒット目のダメージ表示が計算された時点でのボスの残HP割合。無入力の場合は100（%＝満タン）として扱います。</li>
-      <li><strong>目標HP（任意）:</strong> このHP以下までボスのHPを削れる確率を表示します。無入力の場合は0として扱われ、「撃破率」として表示されます。</li>
+      <li><strong>1ヒット目のダメージ上限・下限:</strong> ダメージ計算で得られたスキル%適用後の数値を入力してください。</li>
+      <li><strong>前提HP（%）:</strong> 1ヒット目のダメージ表示が計算された時点でのボスの残HP割合。無入力の場合は100%として扱います。</li>
+      <li><strong>目標HP:</strong> このHP以下までボスのHPを削れる確率を表示します。無入力の場合は0として扱われ、「撃破率」として表示されます。</li>
     </ul>
   </div>
 
@@ -85,30 +104,33 @@
     </div>
     <div class="inputRow">
       <label for="bossMaxHpInput">ボスの最大HP:</label>
-      <input type="text" id="bossMaxHpInput" class="numInput" placeholder="例: 10000000">
+      <input type="text" id="bossMaxHpInput" class="numInput" placeholder="1,800,000">
     </div>
     <div class="inputRow">
       <label for="bossCurrentHpInput">ボスの現在HP:</label>
-      <input type="text" id="bossCurrentHpInput" class="numInput" placeholder="空欄で最大HPと同一">
+      <input type="text" id="bossCurrentHpInput" class="numInput">
+      <span class="hint">空欄で最大HPと同一</span>
     </div>
     <div class="inputRow">
       <label for="hit1HighInput">1ヒット目ダメージ上限:</label>
-      <input type="text" id="hit1HighInput" class="numInput" placeholder="例: 113214">
+      <input type="text" id="hit1HighInput" class="numInput" placeholder="113,214">
     </div>
     <div class="inputRow">
       <label for="hit1LowInput">1ヒット目ダメージ下限:</label>
-      <input type="text" id="hit1LowInput" class="numInput" placeholder="例: 88208">
+      <input type="text" id="hit1LowInput" class="numInput" placeholder="88,208">
     </div>
     <div class="inputRow">
       <label for="assumedHpPercentInput">前提HP（%）:</label>
       <input type="text" id="assumedHpPercentInput" class="numInput" placeholder="100">
+      <span class="hint">空欄で100％</span>
     </div>
     <div class="inputRow">
-      <label for="targetHpInput">目標HP（任意）:</label>
-      <input type="text" id="targetHpInput" class="numInput" placeholder="空欄で0（撃破率を表示）">
+      <label for="targetHpInput">目標HP:</label>
+      <input type="text" id="targetHpInput" class="numInput" placeholder="0">
+      <span class="hint">空欄で0（撃破率を表示）</span>
     </div>
     <div style="color: #222; font-size: 0.8em; margin-top: 2px;">
-      空欄の場合は灰色で表示されているデフォルト値（プレースホルダー）が適用されます。
+      空欄の場合は薄くデフォルトで表示されている値が適用されます。
     </div>
   </div>
 
