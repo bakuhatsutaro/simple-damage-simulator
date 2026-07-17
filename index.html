@@ -482,7 +482,9 @@
             if (!isHit) continue;
             const isCrit = Math.random() <= blockCritRate;
             const [low, high] = isCrit ? block.crit : block.normal;
-            total += isHit * randomIntInRange(low, high);
+            // 2.1: 元ダメージ範囲で一様乱数生成、2.2: 減衰を適用
+            const rawDamage = randomIntInRange(low, high);
+            total += Math.round(applyAttenuation(rawDamage));
           }
         }
         totalDamages.push(total);
@@ -653,6 +655,95 @@
       });
     }
 
+    // ===== 減衰処理 =====
+    // 元ダメージの区間ごとの反映率テーブル
+    // attenuatedFrom は各区間の開始点における減衰後の値
+    const ATTENUATION_BRACKETS = [
+      { rawFrom:        0, rawTo:  4000000, attenuatedFrom:        0, rate: 1.000 },
+      { rawFrom:  4000000, rawTo:  6248000, attenuatedFrom:  4000000, rate: 0.800 },
+      { rawFrom:  6248000, rawTo:  8496000, attenuatedFrom:  5798400, rate: 0.650 },
+      { rawFrom:  8496000, rawTo: 10744000, attenuatedFrom:  7259600, rate: 0.500 },
+      { rawFrom: 10744000, rawTo: 12992000, attenuatedFrom:  8383600, rate: 0.400 },
+      { rawFrom: 12992000, rawTo: 15240000, attenuatedFrom:  9282800, rate: 0.300 },
+      { rawFrom: 15240000, rawTo: 17488000, attenuatedFrom:  9957200, rate: 0.225 },
+      { rawFrom: 17488000, rawTo: 19736000, attenuatedFrom: 10463000, rate: 0.150 },
+      { rawFrom: 19736000, rawTo: 22000000, attenuatedFrom: 10800200, rate: 0.075 },
+      { rawFrom: 22000000, rawTo: Infinity, attenuatedFrom: 10970000, rate: 0.000 },
+    ];
+
+    // 減衰後ダメージの理論上限値（これ以上の値は元ダメージが一意に定まらない）
+    const MAX_ATTENUATED_VALUE = ATTENUATION_BRACKETS[ATTENUATION_BRACKETS.length - 1].attenuatedFrom;
+
+    // 元ダメージ → 減衰後ダメージ
+    function applyAttenuation(raw) {
+      for (let i = ATTENUATION_BRACKETS.length - 1; i >= 0; i--) {
+        const b = ATTENUATION_BRACKETS[i];
+        if (raw >= b.rawFrom) {
+          return b.attenuatedFrom + (raw - b.rawFrom) * b.rate;
+        }
+      }
+      return raw;
+    }
+
+    // 減衰後ダメージ → 元ダメージ（逆関数）
+    // 注意: 22,000,000 以上はすべて同じ減衰後値になるため逆変換不可。その場合は 22,000,000 を返す。
+    function reverseAttenuation(attenuated) {
+      for (let i = ATTENUATION_BRACKETS.length - 1; i >= 0; i--) {
+        const b = ATTENUATION_BRACKETS[i];
+        if (attenuated >= b.attenuatedFrom) {
+          if (b.rate === 0) {
+            return b.rawFrom;
+          }
+          return b.rawFrom + (attenuated - b.attenuatedFrom) / b.rate;
+        }
+      }
+      return attenuated;
+    }
+
+    // 入力された減衰後ダメージが理論上限（MAX_ATTENUATED_VALUE）以上かどうかを判定
+    // trueの場合、reverseAttenuationで元ダメージを一意に復元できず22,000,000に丸められる
+    function isAttenuationClamped(attenuatedValue) {
+      return attenuatedValue >= MAX_ATTENUATED_VALUE;
+    }
+
+    // ===== 減衰処理テスト =====
+    (function testAttenuation() {
+      console.group("=== 減衰処理テスト ===");
+
+      // applyAttenuation の動作確認（指定値）
+      const applyTests = [
+        { input: 5000000,  expected: 4800000  },
+        { input: 7000000,  expected: 6287200  },
+        { input: 10000000, expected: 8011600  },
+      ];
+      console.group("applyAttenuation テスト");
+      for (const t of applyTests) {
+        const result = applyAttenuation(t.input);
+        const ok = Math.abs(result - t.expected) < 0.01;
+        console.log(
+          `applyAttenuation(${t.input.toLocaleString()}) = ${result.toLocaleString()}` +
+          ` (期待値: ${t.expected.toLocaleString()}) ${ok ? "✅" : "❌"}`
+        );
+      }
+      console.groupEnd();
+
+      // 逆関数テスト（往復変換）
+      const roundTripValues = [1000000, 3999999, 4000000, 5000000, 7000000, 10000000, 15000000, 21000000, 22000000];
+      console.group("逆関数往復テスト（applyAttenuation → reverseAttenuation）");
+      for (const raw of roundTripValues) {
+        const attenuated = applyAttenuation(raw);
+        const recovered = reverseAttenuation(attenuated);
+        const ok = Math.abs(recovered - raw) < 0.01;
+        console.log(
+          `raw=${raw.toLocaleString()} → attenuated=${Math.round(attenuated).toLocaleString()}` +
+          ` → recovered=${Math.round(recovered).toLocaleString()} ${ok ? "✅" : "❌"}`
+        );
+      }
+      console.groupEnd();
+
+      console.groupEnd();
+    })();
+
     function simulate() {
       document.getElementById("error").innerHTML = "";
       document.getElementById("successMessage").innerHTML = "";
@@ -694,8 +785,28 @@
         return;
       }
       
-      // 3. シミュレーション実行
-      const totalDamages = runSimulation(hitBlocks, baseCritRate, baseHitRate, trialCount);
+      // 3. ステップ1: 入力値（減衰後）を元ダメージ（減衰前）の範囲に逆変換
+      // 注意: この逆変換は「入力範囲＝単一区間内で一様分布だった元ダメージ」という前提に基づく。
+      // 入力範囲が複数の減衰ブラケット（傾きが変わる区間）をまたぐ場合、
+      // 減衰後の分布は厳密には一様分布にならない点に留意（実用上の影響は軽微）。
+      let attenuationWarningShown = false;
+      for (const block of hitBlocks) {
+        for (const v of [...block.normal, ...block.crit]) {
+          if (isAttenuationClamped(v) && !attenuationWarningShown) {
+            debugInfo += `⚠️ 入力されたダメージ値（${v.toLocaleString()}）が減衰後ダメージの理論上限（${MAX_ATTENUATED_VALUE.toLocaleString()}）以上のため、元ダメージを一意に復元できません。22,000,000として扱われます。<br><br>`;
+            attenuationWarningShown = true;
+          }
+        }
+      }
+
+      const rawHitBlocks = hitBlocks.map(block => ({
+        ...block,
+        normal: [Math.round(reverseAttenuation(block.normal[0])), Math.round(reverseAttenuation(block.normal[1]))],
+        crit:   [Math.round(reverseAttenuation(block.crit[0])),   Math.round(reverseAttenuation(block.crit[1]))],
+      }));
+
+      // ステップ2: シミュレーション実行（元ダメージ範囲で乱数生成 → 減衰適用）
+      const totalDamages = runSimulation(rawHitBlocks, baseCritRate, baseHitRate, trialCount);
       
       // 4. 統計計算
       const resultOutput = calculateStatistics(totalDamages);
