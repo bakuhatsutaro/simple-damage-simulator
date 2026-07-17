@@ -49,12 +49,13 @@
   </style>
 </head>
 <body>
-  <h2>簡単ダメージシミュレーター（2025年10月10日版）</h2>
+  <h2>簡単ダメージシミュレーター（2026年7月17日版）</h2>
 
   <div id="guide">
     どこかで見たことのあるダメージ表現式をコピペすると合計ダメージの確率計算をしてくれます。<br>
-    <b>New!! (2025/10/10)</b> 会心率バフや複数アタッカーに対応するため、会心率・回避率を途中で変更する機能を実装しました。<br>
-    <b>New!! (2025/10/10)</b> コメント機能を実装しました。<br>
+    <b>New!!(2026/07/17)</b> ダメージ減衰に対応しました。減衰後のダメージを入力してください。減衰前にいったん戻したあと減衰再計算し、正しい確率に基づいたシミュレーションを行います。<br>
+    <b>(2025/10/10)</b> 会心率バフや複数アタッカーに対応するため、会心率・回避率を途中で変更する機能を実装しました。<br>
+    <b>(2025/10/10)</b> コメント機能を実装しました。<br>
     <b>(2025/09/08)</b> 確定会心・確定非会心の場合と安定値ガチャがない場合にようやく対応しました。<br>
     <b>(2025/09/11)</b> 命中率に対応しました。<br>
     <h3>📘 入力形式ガイド</h3>
@@ -189,7 +190,22 @@
       return Math.floor(Math.random() * (high - low + 1)) + low;
     }
 
+    // 0～100の範囲のパーセント値として妥当かを検証するヘルパー
+    // 不正な場合はエラーメッセージを返し、value は null にする
+    function validatePercentValue(rawValue, label) {
+      const value = parseFloat(rawValue) / 100;
+      if (rawValue.trim() === "" || isNaN(value)) {
+        return { value: null, error: `❌ ${label}が数値として認識できませんでした：「${rawValue}」` };
+      }
+      if (value < 0 || value > 1) {
+        return { value: null, error: `❌ ${label}は0%～100%の範囲で入力してください（入力値：${(value * 100)}%）` };
+      }
+      return { value, error: null };
+    }
+
     function validateAndParseInput() {
+      const errorMessages = [];
+
       const critRateInputElement = document.getElementById("critRateInput");
       let critRateInput = critRateInputElement.value.trim();
       
@@ -198,7 +214,9 @@
         critRateInput = critRateInputElement.placeholder;
       }
       
-      const baseCritRate = parseFloat(critRateInput) / 100;
+      const critValidation = validatePercentValue(critRateInput, "会心確率");
+      if (critValidation.error) errorMessages.push(critValidation.error);
+      const baseCritRate = critValidation.value;
       
       const hitRateInputElement = document.getElementById("hitRateInput");
       let hitRateInput = hitRateInputElement.value.trim();
@@ -208,7 +226,9 @@
         hitRateInput = hitRateInputElement.placeholder;
       }
       
-      const baseHitRate = parseFloat(hitRateInput) / 100;
+      const hitValidation = validatePercentValue(hitRateInput, "命中率");
+      if (hitValidation.error) errorMessages.push(hitValidation.error);
+      const baseHitRate = hitValidation.value;
       
       const inputElement = document.getElementById("inputText");
       let input = inputElement.value.trim();
@@ -220,7 +240,7 @@
       
       const lines = input.split('\n').map(line => line.trim()).filter(line => line.length > 0);
       
-      return { baseCritRate, baseHitRate, lines };
+      return { baseCritRate, baseHitRate, lines, errorMessages };
     }
 
     function processInput(input, baseCritRate, baseHitRate) {
@@ -267,8 +287,13 @@
               continue;
             }
             
-            // 数値を抽出して100で割る
-            const percentValue = parseFloat(numberMatch[0]) / 100;
+            // 数値を検証（0～100%の範囲かどうか）
+            const changeValidation = validatePercentValue(numberMatch[0], hasKaisin ? "変更後の会心率" : "変更後の命中率");
+            if (changeValidation.error) {
+              errorMessages.push(`${changeValidation.error}<br><small>読み取れなかった文字列：${section}</small>`);
+              continue;
+            }
+            const percentValue = changeValidation.value;
             
             if (hasKaisin) {
               currentCritRate = percentValue;
@@ -559,25 +584,26 @@
       const points = [];
       
       // 0.1%～0.9%の詳細な範囲（0.1%刻み）
-      for (let p = 0.1; p <= 0.9; p += 0.1) {
-        const index = Math.floor(totalDamages.length * (p / 100));
+      for (let i = 1; i <= 9; i++) {
+        const p = i / 10; // 0.1, 0.2, ..., 0.9
+        const index = Math.floor(totalDamages.length * (p / 100)) - 1;
         const threshold = totalDamages[index];
         const prob = p / 100;
         points.push({ x: threshold, y: prob });
       }
       
       // 1%～10%の範囲（0.5%刻み）
-      for (let p = 1; p <= 10; p += 0.5) {
-        const index = Math.floor(totalDamages.length * (p / 100));
+      for (let i = 2; i <= 20; i++) {
+        const p = i / 2; // 1, 1.5, ..., 10
+        const index = Math.floor(totalDamages.length * (p / 100)) - 1;
         const threshold = totalDamages[index];
         const prob = p / 100;
         points.push({ x: threshold, y: prob });
       }
       
       // 10%～100%の範囲（1%刻み）
-      for (let p = 10; p <= 100; p += 1) {
-        if (p === 100) continue;
-        const index = Math.floor(totalDamages.length * (p / 100));
+      for (let p = 10; p <= 99; p += 1) {
+        const index = Math.floor(totalDamages.length * (p / 100)) - 1;
         const threshold = totalDamages[index];
         const prob = p / 100;
         points.push({ x: threshold, y: prob });
@@ -705,7 +731,17 @@
       document.getElementById("successMessage").innerHTML = "";
       
       // 1. 入力検証と解析
-      const { baseCritRate, baseHitRate } = validateAndParseInput();
+      const { baseCritRate, baseHitRate, errorMessages: baseErrorMessages } = validateAndParseInput();
+      
+      // 会心率・命中率が不正な場合はここで処理を中断
+      if (baseErrorMessages.length > 0) {
+        document.getElementById("parsedData").innerHTML = "";
+        document.getElementById("result").innerHTML = "";
+        document.getElementById("error").innerHTML = baseErrorMessages.join("<br>");
+        document.getElementById("successMessage").innerHTML = "";
+        document.getElementById("accordionSection").style.display = "none";
+        return;
+      }
       
       // 1.5. シミュレーション回数の取得
       const selectedTrialCount = document.querySelector('input[name="trialCount"]:checked').value;
