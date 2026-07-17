@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>ミカ ダメージシミュレーター</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: sans-serif; }
+    #guide { background: #f0f8ff; padding: 1em; border: 1px solid #ccc; margin-bottom: 1em; }
+    #error { color: red; font-weight: bold; }
+    .inputRow { margin-bottom: 8px; }
+    .inputRow label { display: inline-block; min-width: 220px; }
+    .inputRow input, .inputRow select {
+      font-size: 1.05em;
+      padding: 4px;
+    }
+    .numInput { width: 120px; }
+    .accordion {
+      background-color: #f9f9f9;
+      color: #444;
+      cursor: pointer;
+      padding: 10px;
+      width: 100%;
+      max-width: 480px;
+      border: 1px solid #ccc;
+      text-align: left;
+      outline: none;
+      font-size: 14px;
+      margin-top: 10px;
+      box-sizing: border-box;
+    }
+    .accordion:hover {
+      background-color: #e9e9e9;
+    }
+    .accordion-content {
+      padding: 0 10px;
+      display: none;
+      overflow: hidden;
+      background-color: #fafafa;
+      border: 1px solid #ccc;
+      border-top: none;
+      width: 100%;
+      max-width: 480px;
+      box-sizing: border-box;
+      font-size: 12px;
+    }
+    .accordion-content.show {
+      display: block;
+      padding: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>ミカ ダメージシミュレーター（HP依存倍率対応・2026年7月17日版）</h2>
+
+  <div id="guide">
+    ミカのようにHP依存の倍率を持つ生徒のダメージをシミュレーションします。<br>
+    ダメージ計算で得られた１ヒット目のダメージ上限と下限を入力してください。<br>
+    <h3>📘 入力項目</h3>
+    <ul>
+      <li><strong>生徒:</strong> 現在はミカのみ対応。他の生徒は今後拡張予定です。</li>
+      <li><strong>ボスの最大HP・現在HP:</strong> 現在HPが入力されない場合は最大HPと同一と見なされます。</li>
+      <li><strong>1ヒット目のダメージ上限・下限:</strong> ダメージ計算で得られたスキル％適用後の数値を入力してください。</li>
+      <li><strong>前提HP（%）:</strong> 1ヒット目のダメージ表示が計算された時点でのボスの残HP割合。無入力の場合は100（%＝満タン）として扱います。</li>
+      <li><strong>目標HP（任意）:</strong> このHP以下までボスのHPを削れる確率を表示します。無入力の場合は0として扱われ、「撃破率」として表示されます。</li>
+    </ul>
+  </div>
+
+  <div style="width: 100%; max-width: 480px; margin-bottom: 10px;">
+    <strong>シミュレーション回数:</strong><br>
+    <label><input type="radio" name="trialCount" value="10000"> 10,000回（軽量）</label>
+    &nbsp;&nbsp;&nbsp;&nbsp;
+    <label><input type="radio" name="trialCount" value="100000" checked> 100,000回</label>
+    <br>
+    <label><input type="radio" name="trialCount" value="1000000"> 1,000,000回（高精度）</label>
+  </div>
+
+  <div style="width: 100%; max-width: 480px; margin-bottom: 10px;">
+    <div class="inputRow">
+      <label for="studentSelect">生徒:</label>
+      <select id="studentSelect">
+        <option value="mika">ミカ</option>
+        <option value="other" disabled>その他（未実装）</option>
+      </select>
+    </div>
+    <div class="inputRow">
+      <label for="bossMaxHpInput">ボスの最大HP:</label>
+      <input type="text" id="bossMaxHpInput" class="numInput" placeholder="例: 10000000">
+    </div>
+    <div class="inputRow">
+      <label for="bossCurrentHpInput">ボスの現在HP:</label>
+      <input type="text" id="bossCurrentHpInput" class="numInput" placeholder="空欄で最大HPと同一">
+    </div>
+    <div class="inputRow">
+      <label for="hit1LowInput">1ヒット目ダメージ下限:</label>
+      <input type="text" id="hit1LowInput" class="numInput" placeholder="例: 88208">
+    </div>
+    <div class="inputRow">
+      <label for="hit1HighInput">1ヒット目ダメージ上限:</label>
+      <input type="text" id="hit1HighInput" class="numInput" placeholder="例: 113214">
+    </div>
+    <div class="inputRow">
+      <label for="assumedHpPercentInput">前提HP（%）:</label>
+      <input type="text" id="assumedHpPercentInput" class="numInput" placeholder="100">
+    </div>
+    <div class="inputRow">
+      <label for="targetHpInput">目標HP（任意）:</label>
+      <input type="text" id="targetHpInput" class="numInput" placeholder="空欄で0（撃破率を表示）">
+    </div>
+    <div style="color: #222; font-size: 0.8em; margin-top: 2px;">
+      空欄の場合は灰色で表示されているデフォルト値（プレースホルダー）が適用されます。
+    </div>
+  </div>
+
+  <div style="width: 100%; max-width: 480px; display: flex; justify-content: space-between; margin-bottom: 20px;">
+    <button onclick="simulateMika()">シミュレーション開始</button>
+    <button onclick="clearAll()">クリア</button>
+  </div>
+  <div id="error"></div>
+  <div id="successMessage"></div>
+  <div id="accordionSection" style="display: none;">
+    <button class="accordion" onclick="toggleAccordion()">読み取った情報を表示/非表示</button>
+    <div class="accordion-content" id="parsedDataContent">
+      <p id="parsedData"></p>
+    </div>
+  </div>
+  <p id="result"></p>
+  <canvas id="histogramChart" width="800" height="400"></canvas>
+
+  <script>
+    let chartInstance = null;
+
+    // ===== 生徒設定（拡張用） =====
+    // hitMultipliers: 各ヒットの素倍率（例: 77.02% → 0.7702）
+    // hpMultiplierFn: 残HP割合（0〜1）を受け取りHP依存倍率を返す関数
+    const STUDENTS = {
+      mika: {
+        name: "ミカ",
+        implemented: true,
+        hitMultipliers: [
+          0.7702, 0.7702, 0.7702, 0.7702, 0.7702,
+          0.7702, 0.7702, 0.7702, 0.7702, 0.7702,
+          7.7018
+        ],
+        // HP依存倍率 = 1 + 残HP/最大HP
+        hpMultiplierFn: (hpFraction) => 1 + hpFraction
+      }
+      // 他のHP依存生徒はここに追加していく（未実装）
+    };
+
+    function randomIntInRange(low, high) {
+      return Math.floor(Math.random() * (high - low + 1)) + low;
+    }
+
+    function parseNumberInput(elementId) {
+      const el = document.getElementById(elementId);
+      let raw = el.value.trim();
+      if (raw === "") {
+        raw = el.placeholder;
+      }
+      const value = parseFloat(raw.replace(/,/g, ""));
+      return value;
+    }
+
+    function validateAndParseMikaInput() {
+      const errors = [];
+
+      const studentKey = document.getElementById("studentSelect").value;
+      const student = STUDENTS[studentKey];
+      if (!student || !student.implemented) {
+        errors.push("❌ 選択された生徒は未実装です。現在はミカのみ対応しています。");
+      }
+
+      const maxHp = parseNumberInput("bossMaxHpInput");
+
+      const currentHpEl = document.getElementById("bossCurrentHpInput");
+      const currentHpRaw = currentHpEl.value.trim();
+      const currentHp = currentHpRaw === "" ? maxHp : parseFloat(currentHpRaw.replace(/,/g, ""));
+
+      const hit1Low = parseNumberInput("hit1LowInput");
+      const hit1High = parseNumberInput("hit1HighInput");
+      const assumedHpPercent = parseNumberInput("assumedHpPercentInput");
+
+      const targetHpEl = document.getElementById("targetHpInput");
+      const targetHpRaw = targetHpEl.value.trim();
+      const targetHp = targetHpRaw === "" ? 0 : parseFloat(targetHpRaw.replace(/,/g, ""));
+
+      if (isNaN(maxHp) || maxHp <= 0) {
+        errors.push("❌ ボスの最大HPが不正です。正の数値を入力してください。");
+      }
+      if (isNaN(currentHp) || currentHp < 0) {
+        errors.push("❌ ボスの現在HPが不正です。0以上の数値を入力してください。");
+      }
+      if (!isNaN(maxHp) && !isNaN(currentHp) && currentHp > maxHp) {
+        errors.push("❌ ボスの現在HPが最大HPを超えています。");
+      }
+      if (isNaN(hit1Low) || hit1Low <= 0) {
+        errors.push("❌ 1ヒット目ダメージ下限が不正です。");
+      }
+      if (isNaN(hit1High) || hit1High <= 0) {
+        errors.push("❌ 1ヒット目ダメージ上限が不正です。");
+      }
+      if (!isNaN(hit1Low) && !isNaN(hit1High) && hit1Low > hit1High) {
+        errors.push("❌ 1ヒット目ダメージ下限が上限を超えています。");
+      }
+      if (isNaN(assumedHpPercent) || assumedHpPercent < 0) {
+        errors.push("❌ 前提HP（%）が不正です。0以上の数値を入力してください。");
+      }
+      if (isNaN(targetHp) || targetHp < 0) {
+        errors.push("❌ 目標HPが不正です。0以上の数値を入力してください。");
+      }
+      if (!isNaN(currentHp) && !isNaN(targetHp) && targetHp > currentHp) {
+        errors.push("❌ 目標HPが現在HPを超えています。");
+      }
+
+      return { studentKey, student, maxHp, currentHp, hit1Low, hit1High, assumedHpPercent, targetHp, errors };
+    }
+
+    // ===== 減衰処理 =====
+    const ATTENUATION_BRACKETS = [
+      { rawFrom:        0, rawTo:  4000000, attenuatedFrom:        0, rate: 1.000 },
+      { rawFrom:  4000000, rawTo:  6248000, attenuatedFrom:  4000000, rate: 0.800 },
+      { rawFrom:  6248000, rawTo:  8496000, attenuatedFrom:  5798400, rate: 0.650 },
+      { rawFrom:  8496000, rawTo: 10744000, attenuatedFrom:  7259600, rate: 0.500 },
+      { rawFrom: 10744000, rawTo: 12992000, attenuatedFrom:  8383600, rate: 0.400 },
+      { rawFrom: 12992000, rawTo: 15240000, attenuatedFrom:  9282800, rate: 0.300 },
+      { rawFrom: 15240000, rawTo: 17488000, attenuatedFrom:  9957200, rate: 0.225 },
+      { rawFrom: 17488000, rawTo: 19736000, attenuatedFrom: 10463000, rate: 0.150 },
+      { rawFrom: 19736000, rawTo: 22000000, attenuatedFrom: 10800200, rate: 0.075 },
+      { rawFrom: 22000000, rawTo: Infinity, attenuatedFrom: 10970000, rate: 0.000 },
+    ];
+
+    function applyAttenuation(raw) {
+      for (let i = ATTENUATION_BRACKETS.length - 1; i >= 0; i--) {
+        const b = ATTENUATION_BRACKETS[i];
+        if (raw >= b.rawFrom) {
+          return b.attenuatedFrom + (raw - b.rawFrom) * b.rate;
+        }
+      }
+      return raw;
+    }
+
+    function reverseAttenuation(attenuated) {
+      for (let i = ATTENUATION_BRACKETS.length - 1; i >= 0; i--) {
+        const b = ATTENUATION_BRACKETS[i];
+        if (attenuated >= b.attenuatedFrom) {
+          if (b.rate === 0) {
+            return b.rawFrom;
+          }
+          return b.rawFrom + (attenuated - b.attenuatedFrom) / b.rate;
+        }
+      }
+      return attenuated;
+    }
+
+    // 1ヒット目の表示ダメージ（減衰後）と前提HPから、素のダメージ乱数範囲（減衰前・倍率適用前）を逆算する
+    function deriveBaseRange(hit1Low, hit1High, assumedHpPercent, hitMultiplier1) {
+      const assumedHpFraction = assumedHpPercent / 100;
+      const hpMultiplierAssumed = 1 + assumedHpFraction;
+
+      const rawLow = reverseAttenuation(hit1Low);
+      const rawHigh = reverseAttenuation(hit1High);
+
+      const baseLow = rawLow / (hitMultiplier1 * hpMultiplierAssumed);
+      const baseHigh = rawHigh / (hitMultiplier1 * hpMultiplierAssumed);
+
+      return { baseLow, baseHigh, hpMultiplierAssumed };
+    }
+
+    // 1試行分のシミュレーション：ヒットごとにHPを更新しながらダメージを積算する
+    function simulateOneTrial(student, baseLow, baseHigh, maxHp, currentHp) {
+      let hpState = currentHp;
+      let total = 0;
+      const perHitDamages = [];
+
+      for (const hitMultiplier of student.hitMultipliers) {
+        const hpFraction = maxHp > 0 ? Math.max(hpState, 0) / maxHp : 0;
+        const hpMultiplier = student.hpMultiplierFn(hpFraction);
+
+        const baseRoll = baseLow === baseHigh
+          ? baseLow
+          : (Math.random() * (baseHigh - baseLow) + baseLow);
+
+        const raw = baseRoll * hitMultiplier * hpMultiplier;
+        const final = Math.round(applyAttenuation(raw));
+
+        perHitDamages.push(final);
+        total += final;
+        hpState = Math.max(hpState - final, 0);
+      }
+
+      return { total, perHitDamages };
+    }
+
+    function runMikaSimulation(student, baseLow, baseHigh, maxHp, currentHp, trialCount) {
+      const totalDamages = [];
+      let sampleTrial = null;
+
+      for (let t = 0; t < trialCount; t++) {
+        const { total, perHitDamages } = simulateOneTrial(student, baseLow, baseHigh, maxHp, currentHp);
+        totalDamages.push(total);
+        if (t === 0) {
+          sampleTrial = perHitDamages;
+        }
+      }
+
+      return { totalDamages, sampleTrial };
+    }
+
+    function calculateStatistics(totalDamages, currentHp, targetHp) {
+      totalDamages.sort((a, b) => b - a);
+      const trialCount = totalDamages.length;
+      const mean = totalDamages.reduce((sum, v) => sum + v, 0) / trialCount;
+
+      const requiredDamage = Math.max(currentHp - targetHp, 0);
+      const successCount = totalDamages.filter(d => d >= requiredDamage).length;
+      const successRate = successCount / trialCount;
+      const rateLabel = targetHp === 0 ? "撃破率" : "目標突破率";
+
+      const leftThresholds = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50];
+      const rightThresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
+
+      let output = `<strong>試行回数: ${trialCount.toLocaleString()}</strong><br>` +
+                   `<strong>平均ダメージ: ${Math.round(mean).toLocaleString()}</strong><br>` +
+                   `<strong>目標HP: ${targetHp.toLocaleString()}（必要ダメージ: ${requiredDamage.toLocaleString()}）</strong><br>` +
+                   `<strong>${rateLabel}: ${(successRate * 100).toFixed(2)}%</strong><br><br>` +
+                   `<strong>上位x%のダメージしきい値</strong><br>`;
+
+      output += `<div style="display: flex; gap: 40px; margin-top: 10px;">`;
+
+      output += `<div>`;
+      for (const x of leftThresholds) {
+        const index = Math.floor(trialCount * (x / 100)) - 1;
+        const dmg = totalDamages[index];
+        output += `上位 ${x}%: ${dmg.toLocaleString()}<br>`;
+      }
+      output += `</div>`;
+
+      output += `<div>`;
+      for (const x of rightThresholds) {
+        const index = Math.floor(trialCount * (x / 100)) - 1;
+        const dmg = totalDamages[index];
+        output += `上位 ${x}%: ${dmg.toLocaleString()}<br>`;
+      }
+      output += `</div>`;
+
+      output += `</div>`;
+
+      return output;
+    }
+
+    function updateDisplay(debugInfo, resultOutput, errorMessages) {
+      if (errorMessages.length > 0) {
+        document.getElementById("error").innerHTML = errorMessages.join("<br>");
+        document.getElementById("successMessage").innerHTML = "";
+      } else {
+        document.getElementById("error").innerHTML = "";
+        document.getElementById("successMessage").innerHTML = "<strong>✅ 正常終了</strong>";
+      }
+
+      document.getElementById("parsedData").innerHTML = debugInfo;
+      document.getElementById("result").innerHTML = resultOutput;
+      document.getElementById("accordionSection").style.display = "block";
+    }
+
+    function toggleAccordion() {
+      const content = document.getElementById("parsedDataContent");
+      content.classList.toggle("show");
+    }
+
+    function clearAll() {
+      if (confirm("すべての入力内容と結果をクリアしますか？")) {
+        document.getElementById("bossMaxHpInput").value = "";
+        document.getElementById("bossCurrentHpInput").value = "";
+        document.getElementById("hit1LowInput").value = "";
+        document.getElementById("hit1HighInput").value = "";
+        document.getElementById("assumedHpPercentInput").value = "";
+        document.getElementById("targetHpInput").value = "";
+        document.getElementById("studentSelect").value = "mika";
+
+        document.querySelector('input[name="trialCount"][value="100000"]').checked = true;
+
+        document.getElementById("error").innerHTML = "";
+        document.getElementById("successMessage").innerHTML = "";
+        document.getElementById("parsedData").innerHTML = "";
+        document.getElementById("result").innerHTML = "";
+
+        document.getElementById("parsedDataContent").classList.remove("show");
+        document.getElementById("accordionSection").style.display = "none";
+
+        if (chartInstance) {
+          chartInstance.destroy();
+          chartInstance = null;
+        }
+      }
+    }
+
+    function renderChart(totalDamages) {
+      const points = [];
+
+      for (let p = 0.1; p <= 0.9; p += 0.1) {
+        const index = Math.floor(totalDamages.length * (p / 100));
+        const threshold = totalDamages[index];
+        const prob = p / 100;
+        points.push({ x: threshold, y: prob });
+      }
+
+      for (let p = 1; p <= 10; p += 0.5) {
+        const index = Math.floor(totalDamages.length * (p / 100));
+        const threshold = totalDamages[index];
+        const prob = p / 100;
+        points.push({ x: threshold, y: prob });
+      }
+
+      for (let p = 10; p <= 100; p += 1) {
+        if (p === 100) continue;
+        const index = Math.floor(totalDamages.length * (p / 100));
+        const threshold = totalDamages[index];
+        const prob = p / 100;
+        points.push({ x: threshold, y: prob });
+      }
+
+      const ctx = document.getElementById('histogramChart').getContext('2d');
+      if (chartInstance) chartInstance.destroy();
+      chartInstance = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+          datasets: [{
+            label: 'このダメージ以上となる確率',
+            data: points,
+            showLine: true,
+            pointRadius: 3
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: {
+              title: { display: true, text: '合計ダメージ' }
+            },
+            y: {
+              title: { display: true, text: 'x以上の確率 1-F(x)' },
+              min: 0,
+              max: 1
+            }
+          },
+          plugins: {
+            legend: { display: true },
+            tooltip: {
+              callbacks: {
+                label: (item) => `ダメージ: ${item.parsed.x}, 確率: ${(item.parsed.y * 100).toFixed(2)}%`
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function simulateMika() {
+      document.getElementById("error").innerHTML = "";
+      document.getElementById("successMessage").innerHTML = "";
+
+      const { studentKey, student, maxHp, currentHp, hit1Low, hit1High, assumedHpPercent, targetHp, errors } = validateAndParseMikaInput();
+
+      if (errors.length > 0) {
+        document.getElementById("parsedData").innerHTML = "";
+        document.getElementById("result").innerHTML = "";
+        document.getElementById("error").innerHTML = errors.join("<br>");
+        document.getElementById("successMessage").innerHTML = "";
+        document.getElementById("accordionSection").style.display = "none";
+        return;
+      }
+
+      const selectedTrialCount = document.querySelector('input[name="trialCount"]:checked').value;
+      const trialCount = parseInt(selectedTrialCount);
+
+      const hitMultiplier1 = student.hitMultipliers[0];
+      const { baseLow, baseHigh, hpMultiplierAssumed } = deriveBaseRange(hit1Low, hit1High, assumedHpPercent, hitMultiplier1);
+
+      const { totalDamages, sampleTrial } = runMikaSimulation(student, baseLow, baseHigh, maxHp, currentHp, trialCount);
+
+      const resultOutput = calculateStatistics(totalDamages, currentHp, targetHp);
+
+      let debugInfo = `<strong>【生徒】${student.name}</strong><br>` +
+        `<strong>【ボス】</strong> 最大HP: ${maxHp.toLocaleString()}　現在HP: ${currentHp.toLocaleString()}　目標HP: ${targetHp.toLocaleString()}<br>` +
+        `<strong>【前提HP】</strong> ${assumedHpPercent}%（HP依存倍率: ${hpMultiplierAssumed.toFixed(4)}）<br>` +
+        `<strong>【逆算した素ダメージ乱数範囲（減衰前・倍率適用前）】</strong> ` +
+        `${baseLow.toLocaleString(undefined, {maximumFractionDigits: 2})} - ${baseHigh.toLocaleString(undefined, {maximumFractionDigits: 2})}<br><br>` +
+        `<strong>【ヒットごとの倍率】</strong><br>` +
+        student.hitMultipliers.map((m, i) => `ヒット${i + 1}: ${(m * 100).toFixed(2)}%`).join("　") + `<br><br>` +
+        `<strong>【1試行目のサンプルダメージ内訳】</strong><br>` +
+        sampleTrial.map((d, i) => `ヒット${i + 1}: ${d.toLocaleString()}`).join("　") + `<br>` +
+        `合計: ${sampleTrial.reduce((a, b) => a + b, 0).toLocaleString()}<br>`;
+
+      updateDisplay(debugInfo, resultOutput, []);
+      renderChart(totalDamages);
+    }
+  </script>
+</body>
+</html>
