@@ -49,12 +49,13 @@
   </style>
 </head>
 <body>
-  <h2>簡単ダメージシミュレーター（2025年10月10日版）</h2>
+  <h2>簡単ダメージシミュレーター（2026年7月17日版）</h2>
 
   <div id="guide">
     どこかで見たことのあるダメージ表現式をコピペすると合計ダメージの確率計算をしてくれます。<br>
-    <b>New!! (2025/10/10)</b> 会心率バフや複数アタッカーに対応するため、会心率・回避率を途中で変更する機能を実装しました。<br>
-    <b>New!! (2025/10/10)</b> コメント機能を実装しました。<br>
+    <b>New!!(2026/07/17)</b> ダメージ減衰に対応しました。減衰後のダメージを入力してください。減衰前にいったん戻したあと減衰再計算し、正しい確率に基づいたシミュレーションを行います。<br>
+    <b>(2025/10/10)</b> 会心率バフや複数アタッカーに対応するため、会心率・回避率を途中で変更する機能を実装しました。<br>
+    <b>(2025/10/10)</b> コメント機能を実装しました。<br>
     <b>(2025/09/08)</b> 確定会心・確定非会心の場合と安定値ガチャがない場合にようやく対応しました。<br>
     <b>(2025/09/11)</b> 命中率に対応しました。<br>
     <h3>📘 入力形式ガイド</h3>
@@ -189,7 +190,22 @@
       return Math.floor(Math.random() * (high - low + 1)) + low;
     }
 
+    // 0～100の範囲のパーセント値として妥当かを検証するヘルパー
+    // 不正な場合はエラーメッセージを返し、value は null にする
+    function validatePercentValue(rawValue, label) {
+      const value = parseFloat(rawValue) / 100;
+      if (rawValue.trim() === "" || isNaN(value)) {
+        return { value: null, error: `❌ ${label}が数値として認識できませんでした：「${rawValue}」` };
+      }
+      if (value < 0 || value > 1) {
+        return { value: null, error: `❌ ${label}は0%～100%の範囲で入力してください（入力値：${(value * 100)}%）` };
+      }
+      return { value, error: null };
+    }
+
     function validateAndParseInput() {
+      const errorMessages = [];
+
       const critRateInputElement = document.getElementById("critRateInput");
       let critRateInput = critRateInputElement.value.trim();
       
@@ -198,7 +214,9 @@
         critRateInput = critRateInputElement.placeholder;
       }
       
-      const baseCritRate = parseFloat(critRateInput) / 100;
+      const critValidation = validatePercentValue(critRateInput, "会心確率");
+      if (critValidation.error) errorMessages.push(critValidation.error);
+      const baseCritRate = critValidation.value;
       
       const hitRateInputElement = document.getElementById("hitRateInput");
       let hitRateInput = hitRateInputElement.value.trim();
@@ -208,7 +226,9 @@
         hitRateInput = hitRateInputElement.placeholder;
       }
       
-      const baseHitRate = parseFloat(hitRateInput) / 100;
+      const hitValidation = validatePercentValue(hitRateInput, "命中率");
+      if (hitValidation.error) errorMessages.push(hitValidation.error);
+      const baseHitRate = hitValidation.value;
       
       const inputElement = document.getElementById("inputText");
       let input = inputElement.value.trim();
@@ -220,7 +240,7 @@
       
       const lines = input.split('\n').map(line => line.trim()).filter(line => line.length > 0);
       
-      return { baseCritRate, baseHitRate, lines };
+      return { baseCritRate, baseHitRate, lines, errorMessages };
     }
 
     function processInput(input, baseCritRate, baseHitRate) {
@@ -267,8 +287,13 @@
               continue;
             }
             
-            // 数値を抽出して100で割る
-            const percentValue = parseFloat(numberMatch[0]) / 100;
+            // 数値を検証（0～100%の範囲かどうか）
+            const changeValidation = validatePercentValue(numberMatch[0], hasKaisin ? "変更後の会心率" : "変更後の命中率");
+            if (changeValidation.error) {
+              errorMessages.push(`${changeValidation.error}<br><small>読み取れなかった文字列：${section}</small>`);
+              continue;
+            }
+            const percentValue = changeValidation.value;
             
             if (hasKaisin) {
               currentCritRate = percentValue;
@@ -282,9 +307,16 @@
             continue; // 次のセクションに移る
           } else if (firstLine.startsWith('ヒット') || /^\d/.test(firstLine)) {
             // ヒットセクションの処理
-            const hitLine = firstLine.startsWith('ヒット') ? firstLine : 'ヒット' + firstLine;
+            // 「ヒット」で始まらず数字始まりの行は、暗黙的にヒット行とみなす（互換性維持のため）
+            const isImplicitHitLine = !firstLine.startsWith('ヒット');
+            const hitLine = isImplicitHitLine ? 'ヒット' + firstLine : firstLine;
             const hitParseResult = parseHitNumbers(hitLine);
             hits = hitParseResult.valid ? hitParseResult.hitNumbers.length : 0;
+
+            // 数字始まりの行を暗黙的にヒット行と解釈した場合、誤解釈の可能性があるため注記を残す
+            if (isImplicitHitLine && hitParseResult.valid) {
+              debugInfo += `⚠️ 「${firstLine}」を「ヒット」省略とみなして解釈しました（意図と異なる場合は行頭に明示的に「ヒット」と記載してください）<br>`;
+            }
           }
         }
 
@@ -446,9 +478,13 @@
           
           for (let j = 0; j < block.hits; j++) {
             const isHit = Math.random() <= blockHitRate;
+            // ミスの場合はダメージが0になるため、会心判定の乱数生成を省略する（軽微な高速化）
+            if (!isHit) continue;
             const isCrit = Math.random() <= blockCritRate;
             const [low, high] = isCrit ? block.crit : block.normal;
-            total += isHit * randomIntInRange(low, high);
+            // 2.1: 元ダメージ範囲で一様乱数生成、2.2: 減衰を適用
+            const rawDamage = randomIntInRange(low, high);
+            total += Math.round(applyAttenuation(rawDamage));
           }
         }
         totalDamages.push(total);
@@ -462,13 +498,17 @@
       totalDamages.sort((a, b) => b - a);
 
       const trialCount = totalDamages.length;
+
+      const mean = totalDamages.reduce((sum, v) => sum + v, 0) / trialCount;
       
       // 左列：従来の範囲
       const leftThresholds = [1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50];
       // 右列：詳細な範囲
       const rightThresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9];
       
-      let output = `<strong>試行回数: ${trialCount.toLocaleString()}</strong><br><br><strong>上位x%のダメージしきい値</strong><br>`;
+      let output = `<strong>試行回数: ${trialCount.toLocaleString()}</strong><br>` +
+                   `<strong>平均ダメージ: ${Math.round(mean).toLocaleString()}</strong><br><br>` +
+                   `<strong>上位x%のダメージしきい値</strong><br>`;
       
       // 2列のテーブル形式で表示
       output += `<div style="display: flex; gap: 40px; margin-top: 10px;">`;
@@ -553,25 +593,26 @@
       const points = [];
       
       // 0.1%～0.9%の詳細な範囲（0.1%刻み）
-      for (let p = 0.1; p <= 0.9; p += 0.1) {
-        const index = Math.floor(totalDamages.length * (p / 100));
+      for (let i = 1; i <= 9; i++) {
+        const p = i / 10; // 0.1, 0.2, ..., 0.9
+        const index = Math.floor(totalDamages.length * (p / 100)) - 1;
         const threshold = totalDamages[index];
         const prob = p / 100;
         points.push({ x: threshold, y: prob });
       }
       
       // 1%～10%の範囲（0.5%刻み）
-      for (let p = 1; p <= 10; p += 0.5) {
-        const index = Math.floor(totalDamages.length * (p / 100));
+      for (let i = 2; i <= 20; i++) {
+        const p = i / 2; // 1, 1.5, ..., 10
+        const index = Math.floor(totalDamages.length * (p / 100)) - 1;
         const threshold = totalDamages[index];
         const prob = p / 100;
         points.push({ x: threshold, y: prob });
       }
       
       // 10%～100%の範囲（1%刻み）
-      for (let p = 10; p <= 100; p += 1) {
-        if (p === 100) continue;
-        const index = Math.floor(totalDamages.length * (p / 100));
+      for (let p = 10; p <= 99; p += 1) {
+        const index = Math.floor(totalDamages.length * (p / 100)) - 1;
         const threshold = totalDamages[index];
         const prob = p / 100;
         points.push({ x: threshold, y: prob });
@@ -614,12 +655,111 @@
       });
     }
 
+    // ===== 減衰処理 =====
+    // 元ダメージの区間ごとの反映率テーブル
+    // attenuatedFrom は各区間の開始点における減衰後の値
+    const ATTENUATION_BRACKETS = [
+      { rawFrom:        0, rawTo:  4000000, attenuatedFrom:        0, rate: 1.000 },
+      { rawFrom:  4000000, rawTo:  6248000, attenuatedFrom:  4000000, rate: 0.800 },
+      { rawFrom:  6248000, rawTo:  8496000, attenuatedFrom:  5798400, rate: 0.650 },
+      { rawFrom:  8496000, rawTo: 10744000, attenuatedFrom:  7259600, rate: 0.500 },
+      { rawFrom: 10744000, rawTo: 12992000, attenuatedFrom:  8383600, rate: 0.400 },
+      { rawFrom: 12992000, rawTo: 15240000, attenuatedFrom:  9282800, rate: 0.300 },
+      { rawFrom: 15240000, rawTo: 17488000, attenuatedFrom:  9957200, rate: 0.225 },
+      { rawFrom: 17488000, rawTo: 19736000, attenuatedFrom: 10463000, rate: 0.150 },
+      { rawFrom: 19736000, rawTo: 22000000, attenuatedFrom: 10800200, rate: 0.075 },
+      { rawFrom: 22000000, rawTo: Infinity, attenuatedFrom: 10970000, rate: 0.000 },
+    ];
+
+    // 減衰後ダメージの理論上限値（これ以上の値は元ダメージが一意に定まらない）
+    const MAX_ATTENUATED_VALUE = ATTENUATION_BRACKETS[ATTENUATION_BRACKETS.length - 1].attenuatedFrom;
+
+    // 元ダメージ → 減衰後ダメージ
+    function applyAttenuation(raw) {
+      for (let i = ATTENUATION_BRACKETS.length - 1; i >= 0; i--) {
+        const b = ATTENUATION_BRACKETS[i];
+        if (raw >= b.rawFrom) {
+          return b.attenuatedFrom + (raw - b.rawFrom) * b.rate;
+        }
+      }
+      return raw;
+    }
+
+    // 減衰後ダメージ → 元ダメージ（逆関数）
+    // 注意: 22,000,000 以上はすべて同じ減衰後値になるため逆変換不可。その場合は 22,000,000 を返す。
+    function reverseAttenuation(attenuated) {
+      for (let i = ATTENUATION_BRACKETS.length - 1; i >= 0; i--) {
+        const b = ATTENUATION_BRACKETS[i];
+        if (attenuated >= b.attenuatedFrom) {
+          if (b.rate === 0) {
+            return b.rawFrom;
+          }
+          return b.rawFrom + (attenuated - b.attenuatedFrom) / b.rate;
+        }
+      }
+      return attenuated;
+    }
+
+    // 入力された減衰後ダメージが理論上限（MAX_ATTENUATED_VALUE）以上かどうかを判定
+    // trueの場合、reverseAttenuationで元ダメージを一意に復元できず22,000,000に丸められる
+    function isAttenuationClamped(attenuatedValue) {
+      return attenuatedValue >= MAX_ATTENUATED_VALUE;
+    }
+
+    // ===== 減衰処理テスト =====
+    (function testAttenuation() {
+      console.group("=== 減衰処理テスト ===");
+
+      // applyAttenuation の動作確認（指定値）
+      const applyTests = [
+        { input: 5000000,  expected: 4800000  },
+        { input: 7000000,  expected: 6287200  },
+        { input: 10000000, expected: 8011600  },
+      ];
+      console.group("applyAttenuation テスト");
+      for (const t of applyTests) {
+        const result = applyAttenuation(t.input);
+        const ok = Math.abs(result - t.expected) < 0.01;
+        console.log(
+          `applyAttenuation(${t.input.toLocaleString()}) = ${result.toLocaleString()}` +
+          ` (期待値: ${t.expected.toLocaleString()}) ${ok ? "✅" : "❌"}`
+        );
+      }
+      console.groupEnd();
+
+      // 逆関数テスト（往復変換）
+      const roundTripValues = [1000000, 3999999, 4000000, 5000000, 7000000, 10000000, 15000000, 21000000, 22000000];
+      console.group("逆関数往復テスト（applyAttenuation → reverseAttenuation）");
+      for (const raw of roundTripValues) {
+        const attenuated = applyAttenuation(raw);
+        const recovered = reverseAttenuation(attenuated);
+        const ok = Math.abs(recovered - raw) < 0.01;
+        console.log(
+          `raw=${raw.toLocaleString()} → attenuated=${Math.round(attenuated).toLocaleString()}` +
+          ` → recovered=${Math.round(recovered).toLocaleString()} ${ok ? "✅" : "❌"}`
+        );
+      }
+      console.groupEnd();
+
+      console.groupEnd();
+    })();
+
     function simulate() {
       document.getElementById("error").innerHTML = "";
       document.getElementById("successMessage").innerHTML = "";
       
       // 1. 入力検証と解析
-      const { baseCritRate, baseHitRate } = validateAndParseInput();
+      const { baseCritRate, baseHitRate, errorMessages: baseErrorMessages } = validateAndParseInput();
+      
+      // 会心率・命中率が不正な場合はここで処理を中断
+      if (baseErrorMessages.length > 0) {
+        document.getElementById("parsedData").innerHTML = "";
+        document.getElementById("result").innerHTML = "";
+        document.getElementById("error").innerHTML = baseErrorMessages.join("<br>");
+        document.getElementById("successMessage").innerHTML = "";
+        document.getElementById("accordionSection").style.display = "none";
+        return;
+      }
       
       // 1.5. シミュレーション回数の取得
       const selectedTrialCount = document.querySelector('input[name="trialCount"]:checked').value;
@@ -645,8 +785,28 @@
         return;
       }
       
-      // 3. シミュレーション実行
-      const totalDamages = runSimulation(hitBlocks, baseCritRate, baseHitRate, trialCount);
+      // 3. ステップ1: 入力値（減衰後）を元ダメージ（減衰前）の範囲に逆変換
+      // 注意: この逆変換は「入力範囲＝単一区間内で一様分布だった元ダメージ」という前提に基づく。
+      // 入力範囲が複数の減衰ブラケット（傾きが変わる区間）をまたぐ場合、
+      // 減衰後の分布は厳密には一様分布にならない点に留意（実用上の影響は軽微）。
+      let attenuationWarningShown = false;
+      for (const block of hitBlocks) {
+        for (const v of [...block.normal, ...block.crit]) {
+          if (isAttenuationClamped(v) && !attenuationWarningShown) {
+            debugInfo += `⚠️ 入力されたダメージ値（${v.toLocaleString()}）が減衰後ダメージの理論上限（${MAX_ATTENUATED_VALUE.toLocaleString()}）以上のため、元ダメージを一意に復元できません。22,000,000として扱われます。<br><br>`;
+            attenuationWarningShown = true;
+          }
+        }
+      }
+
+      const rawHitBlocks = hitBlocks.map(block => ({
+        ...block,
+        normal: [Math.round(reverseAttenuation(block.normal[0])), Math.round(reverseAttenuation(block.normal[1]))],
+        crit:   [Math.round(reverseAttenuation(block.crit[0])),   Math.round(reverseAttenuation(block.crit[1]))],
+      }));
+
+      // ステップ2: シミュレーション実行（元ダメージ範囲で乱数生成 → 減衰適用）
+      const totalDamages = runSimulation(rawHitBlocks, baseCritRate, baseHitRate, trialCount);
       
       // 4. 統計計算
       const resultOutput = calculateStatistics(totalDamages);
